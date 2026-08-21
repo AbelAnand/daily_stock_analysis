@@ -61,7 +61,7 @@ DSA_SCREENING_HOTSPOT_PREFETCH_DETAIL_COUNT = 8
 DSA_SCREENING_HOTSPOT_CALL_TIMEOUT_SECONDS = 8
 DSA_SCREENING_HOTSPOT_SEARCH_TIMEOUT_SECONDS = 12
 DSA_SCREENING_HOTSPOT_UNAVAILABLE_CODE = "eastmoney_hotspot_unavailable"
-DSA_SCREENING_HOTSPOT_UNAVAILABLE_MESSAGE = "热点源连接中断，暂无可用缓存。"
+DSA_SCREENING_HOTSPOT_UNAVAILABLE_MESSAGE = "Hotspot source connection lost and no cache is available."
 DSA_SCREENING_HOTSPOT_CONNECTIVITY_ERROR_MARKERS = (
     "remote disconnected",
     "remote end closed connection",
@@ -393,7 +393,7 @@ def _build_hotspot_event_routes_from_search(topic: str) -> _HotspotSearchAugment
             continue
         date = _extract_date_text(published) or _extract_date_text(description) or today
         routes.append({
-            "title": _truncate_text(title, 48) or "消息催化",
+            "title": _truncate_text(title, 48) or "News catalyst",
             "description": description,
             "source": source,
             "date": date,
@@ -456,13 +456,13 @@ def _summarize_hotspot_news_event_locally(*, topic: str, text: str) -> str:
     catalyst = _extract_hotspot_catalyst_phrase(cleaned)
     impacts = _extract_hotspot_impact_phrases(cleaned)
     if catalyst and impacts:
-        summary = f"{catalyst}，带动{impacts}发酵。"
+        summary = f"{catalyst}, driving increased activity in {impacts}."
     elif catalyst:
-        summary = f"{catalyst}，市场关注{topic}相关产业链机会。"
+        summary = f"{catalyst}, drawing market attention to {topic}-related industry chain opportunities."
     else:
         summary = _first_meaningful_hotspot_sentence(cleaned)
     summary = _truncate_text(summary, DSA_SCREENING_HOTSPOT_EVENT_SUMMARY_MAX_CHARS).rstrip(".。…")
-    return _truncate_text(f"{summary}。", DSA_SCREENING_HOTSPOT_EVENT_SUMMARY_MAX_CHARS)
+    return _truncate_text(f"{summary}.", DSA_SCREENING_HOTSPOT_EVENT_SUMMARY_MAX_CHARS)
 
 
 def _strip_hotspot_news_noise(text: str) -> str:
@@ -495,15 +495,15 @@ def _extract_hotspot_catalyst_phrase(text: str) -> str:
 def _extract_hotspot_impact_phrases(text: str) -> str:
     impacts: List[str] = []
     keyword_groups = (
-        ("小金属", ("小金属", "钼", "钨", "锑", "锗", "铟")),
-        ("有色金属", ("有色", "铜", "铝", "锌", "铅")),
-        ("相关个股", ("涨停", "异动", "走强", "大涨", "拉升")),
-        ("产业链", ("产业链", "上游", "下游", "材料", "资源")),
+        ("minor metals", ("小金属", "钼", "钨", "锑", "锗", "铟")),
+        ("base metals", ("有色", "铜", "铝", "锌", "铅")),
+        ("related stocks", ("涨停", "异动", "走强", "大涨", "拉升")),
+        ("the industry chain", ("产业链", "上游", "下游", "材料", "资源")),
     )
     for label, keywords in keyword_groups:
         if any(keyword in text for keyword in keywords) and label not in impacts:
             impacts.append(label)
-    return "、".join(impacts[:3])
+    return ", ".join(impacts[:3])
 
 
 def _first_meaningful_hotspot_sentence(text: str) -> str:
@@ -941,7 +941,7 @@ class ScreeningService:
                 status_code=404,
                 detail={
                     "error": "screening_run_not_found",
-                    "message": f"选股运行 {run_id} 不存在。",
+                    "message": f"Screening run {run_id} does not exist.",
                 },
             )
         return {"enabled": True, **run}
@@ -958,7 +958,7 @@ class ScreeningService:
                 status_code=503,
                 detail={
                     "error": "screening_history_unavailable",
-                    "message": "DSA 数据库未注入，无法读取选股运行历史。",
+                    "message": "DSA database is not injected; cannot read screening run history.",
                 },
             )
         return self.db_manager
@@ -1121,7 +1121,7 @@ class ScreeningService:
         if not topic_text:
             raise HTTPException(
                 status_code=400,
-                detail={"error": "screening_hotspot_topic_required", "message": "热点题材名称不能为空。"},
+                detail={"error": "screening_hotspot_topic_required", "message": "Hotspot topic name must not be empty."},
             )
         provider_name, provider_arg = _resolve_hotspot_provider(provider)
         if not isinstance(provider_arg, DsaEastMoneyHotspotProvider):
@@ -1238,14 +1238,14 @@ class ScreeningService:
         except (TypeError, KeyError) as exc:
             raise HTTPException(
                 status_code=422,
-                detail={"error": "screening_invalid_input", "message": f"Screening 参数非法：{exc}"},
+                detail={"error": "screening_invalid_input", "message": f"Invalid screening parameters: {exc}"},
             ) from exc
         except HTTPException:
             raise
         except Exception as exc:
             raise HTTPException(
                 status_code=424,
-                detail={"error": "screening_screen_failed", "message": f"Screening 选股运行失败：{exc}"},
+                detail={"error": "screening_screen_failed", "message": f"Screening run failed: {exc}"},
             ) from exc
 
         raw_data = _to_plain(raw)
@@ -1258,7 +1258,7 @@ class ScreeningService:
         _emit_screening_progress(
             progress_callback,
             92,
-            "正在补充入选股票的新闻与事件",
+            "Enriching selected stocks with news and events",
         )
         selected, dsa_enrichment = _enrich_candidates_with_dsa(selected)
         warnings = _collect_screening_warning_messages(raw_data)
@@ -1403,8 +1403,8 @@ def _hotspot_timeline_to_route(timeline: List[Any]) -> List[Dict[str, Any]]:
     if route:
         return route
     return [{
-        "title": "等待发酵",
-        "description": "暂未获取到明确催化事件，可继续观察涨跌幅、成交额和核心个股联动。",
+        "title": "Awaiting catalyst",
+        "description": "No clear catalyst event found yet; keep watching price change, turnover and core-stock co-movement.",
         "source": "fallback",
     }]
 
@@ -1457,7 +1457,7 @@ def _has_meaningful_hotspot_route(route: Any) -> bool:
         source = _env_text(item.get("source"))
         if not title and not description:
             continue
-        if source == "fallback" and title == "等待发酵":
+        if source == "fallback" and title == "Awaiting catalyst":
             continue
         return True
     return False
@@ -1470,12 +1470,12 @@ def _build_screening_hotspot_summary_text(summary: Dict[str, Any], *, topic: str
     leaders = summary.get("leaders") if isinstance(summary.get("leaders"), list) else []
     parts = [display_topic]
     if heat is not None:
-        parts.append(f"热度 {heat:.1f}")
+        parts.append(f"heat {heat:.1f}")
     if stage:
-        parts.append(f"阶段 {stage}")
+        parts.append(f"stage {stage}")
     if leaders:
-        parts.append("核心股 " + "、".join(_env_text(item) for item in leaders[:3] if _env_text(item)))
-    return "，".join(part for part in parts if part) + "。"
+        parts.append("core stocks " + ", ".join(_env_text(item) for item in leaders[:3] if _env_text(item)))
+    return ", ".join(part for part in parts if part) + "."
 
 
 def _ensure_screening_enabled(config: Config) -> None:
@@ -1492,7 +1492,7 @@ def _ensure_screening_available_for_use() -> None:
         return
     normalized_diagnostics = _include_screening_diagnostic_suffix(diagnostics)
     raise _screening_unavailable_exception(
-        "选股功能初始化失败，请检查策略文件、依赖和服务端日志。",
+        "Screening initialization failed; check strategy files, dependencies and server logs.",
         diagnostics=normalized_diagnostics,
     )
 
@@ -1506,7 +1506,7 @@ def _include_screening_diagnostic_suffix(
     normalized.setdefault("resolution", "builtin_engine")
     normalized.setdefault(
         "message",
-        "请检查后端日志、策略资源和基础数据依赖。",
+        "Check backend logs, strategy resources and base data dependencies.",
     )
     return normalized
 
@@ -1553,7 +1553,7 @@ def _call_screening_status() -> Dict[str, Any]:
     except Exception as exc:
         diagnostics = _log_unexpected_screening_exception("strategy_load", exc)
         raise _screening_unavailable_exception(
-            f"选股功能状态检查失败：{exc}",
+            f"Screening status check failed: {exc}",
             diagnostics=diagnostics,
         ) from exc
     return {
@@ -1600,7 +1600,7 @@ def _list_strategies() -> List[Dict[str, Any]]:
     if not isinstance(raw, list):
         raise HTTPException(
             status_code=424,
-            detail={"error": "screening_invalid_result", "message": "选股策略列表结构非法。"},
+            detail={"error": "screening_invalid_result", "message": "Invalid screening strategy list structure."},
         )
 
     normalized: List[Dict[str, Any]] = []
@@ -2017,50 +2017,50 @@ class DsaEastMoneyHotspotProvider:
         "Ⅲ",
     )
     _CHANGE_EVENT_LABELS = {
-        4: "快速拉升",
-        8: "快速回落",
-        16: "大幅上涨",
-        32: "大幅下跌",
-        64: "有大笔买入",
-        128: "有大笔卖出",
-        8193: "火箭发射",
-        8194: "高台跳水",
-        8201: "大笔买入",
-        8202: "大笔卖出",
-        8203: "封涨停板",
-        8204: "打开涨停板",
-        8207: "有打开跌停板",
-        8208: "封跌停板",
-        8209: "向上缺口",
-        8210: "向下缺口",
-        8211: "60日新高",
-        8212: "60日新低",
-        8213: "60日大幅上涨",
-        8214: "60日大幅下跌",
-        8215: "竞价上涨",
-        8216: "竞价下跌",
-        8217: "高开",
-        8218: "低开",
-        8219: "放量",
-        8220: "缩量",
-        8221: "向上突破",
-        8222: "向下破位",
+        4: "rapid rally",
+        8: "rapid pullback",
+        16: "sharp rise",
+        32: "sharp drop",
+        64: "large buy orders",
+        128: "large sell orders",
+        8193: "rocket launch",
+        8194: "high-level dive",
+        8201: "large buy",
+        8202: "large sell",
+        8203: "limit-up sealed",
+        8204: "limit-up opened",
+        8207: "limit-down opened",
+        8208: "limit-down sealed",
+        8209: "gap up",
+        8210: "gap down",
+        8211: "60-day high",
+        8212: "60-day low",
+        8213: "60-day sharp rise",
+        8214: "60-day sharp drop",
+        8215: "call-auction rise",
+        8216: "call-auction drop",
+        8217: "gap-up open",
+        8218: "gap-down open",
+        8219: "volume surge",
+        8220: "volume shrink",
+        8221: "upside breakout",
+        8222: "downside breakdown",
     }
     _METAL_TOPIC_GROUPS = {
-        "钼": "小金属",
-        "钨": "小金属",
-        "钴": "小金属",
-        "镍": "小金属",
-        "锑": "小金属",
-        "铟": "小金属",
-        "锗": "小金属",
-        "铅锌": "工业金属",
-        "铜": "工业金属",
-        "铝": "工业金属",
-        "锡": "工业金属",
-        "黄金": "贵金属",
-        "白银": "贵金属",
-        "贵金属": "贵金属",
+        "钼": "Minor metals",
+        "钨": "Minor metals",
+        "钴": "Minor metals",
+        "镍": "Minor metals",
+        "锑": "Minor metals",
+        "铟": "Minor metals",
+        "锗": "Minor metals",
+        "铅锌": "Industrial metals",
+        "铜": "Industrial metals",
+        "铝": "Industrial metals",
+        "锡": "Industrial metals",
+        "黄金": "Precious metals",
+        "白银": "Precious metals",
+        "贵金属": "Precious metals",
     }
     _THS_TOPIC_ALIASES = {
         "文字媒体": ("文化传媒概念", "文化传媒"),
@@ -2348,8 +2348,8 @@ class DsaEastMoneyHotspotProvider:
         info = self._fetch_ths_info(topic)
         if info:
             route.append({
-                "title": "同花顺板块概况",
-                "description": "；".join(f"{key} {value}" for key, value in list(info.items())[:4]),
+                "title": "THS board overview",
+                "description": "; ".join(f"{key} {value}" for key, value in list(info.items())[:4]),
                 "source": "ths_info",
             })
         if not stocks and summary:
@@ -2359,7 +2359,7 @@ class DsaEastMoneyHotspotProvider:
                 stocks.append({
                     "code": stock_code,
                     "name": stock_name,
-                    "role": "异动核心",
+                    "role": "Move core",
                     "change_pct": None,
                     "hot_stock_score": 60.0,
                 })
@@ -2549,12 +2549,12 @@ class DsaEastMoneyHotspotProvider:
     def _derive_hotspot_stage(self, *, change_pct: Optional[float], event_count: int) -> str:
         positive_change = max(change_pct or 0.0, 0.0)
         if event_count >= 180 and positive_change >= 3.0:
-            return "加速发酵"
+            return "Accelerating"
         if event_count >= 90:
-            return "持续发酵"
+            return "Sustained"
         if positive_change >= 5.0:
-            return "快速拉升"
-        return "初次异动"
+            return "Rapid rally"
+        return "Initial move"
 
     def _hotspot_group(self, topic: str) -> str:
         topic_text = _env_text(topic)
@@ -2589,17 +2589,17 @@ class DsaEastMoneyHotspotProvider:
 
     def _build_hotspot_summary(self, topic: str, summary: Dict[str, Any]) -> str:
         if not summary:
-            return f"{topic} 当前暂无可用的板块异动摘要。"
+            return f"{topic} has no board-move summary available right now."
         change_pct = _safe_float(summary.get("涨跌幅"))
         event_count = int(_safe_float(summary.get("板块异动总次数")) or 0)
         leader = _env_text(summary.get("板块异动最频繁个股及所属类型-股票名称"))
         action = _env_text(summary.get("板块异动最频繁个股及所属类型-买卖方向"))
-        parts = [f"{topic} 当前涨跌幅 {change_pct:.2f}%" if change_pct is not None else f"{topic} 当前有异动记录"]
+        parts = [f"{topic} current change {change_pct:.2f}%" if change_pct is not None else f"{topic} has intraday move records"]
         if event_count:
-            parts.append(f"盘中异动 {event_count} 次")
+            parts.append(f"{event_count} intraday moves")
         if leader:
-            parts.append(f"高频异动个股为 {leader}{f'（{action}）' if action else ''}")
-        return "，".join(parts) + "。"
+            parts.append(f"most active stock {leader}{f' ({action})' if action else ''}")
+        return ", ".join(parts) + "."
 
     def _build_hotspot_route(self, topic: str, summary: Dict[str, Any]) -> List[Dict[str, Any]]:
         route_by_date: Dict[str, Dict[str, Any]] = {}
@@ -2609,7 +2609,7 @@ class DsaEastMoneyHotspotProvider:
             day = date or today
             existing = route_by_date.get(day)
             if existing:
-                existing["description"] = f"{existing['description']}；{description}"
+                existing["description"] = f"{existing['description']}; {description}"
                 if source and source not in str(existing.get("source") or ""):
                     existing["source"] = f"{existing.get('source')},{source}"
                 return
@@ -2626,19 +2626,19 @@ class DsaEastMoneyHotspotProvider:
             event_date = self._extract_route_date(ths_event) or today
             put_daily_item(
                 date=event_date,
-                title="题材驱动",
+                title="Theme driver",
                 description=ths_event,
                 source="ths_summary",
             )
         if summary:
             change_events = self._parse_change_events(summary.get("板块具体异动类型列表及出现次数"))[:5]
-            event_text = "；".join(f"{item['label']}出现 {item['count']} 次" for item in change_events)
+            event_text = "; ".join(f"{item['label']} x{item['count']}" for item in change_events)
             description = self._build_hotspot_summary(topic, summary)
             if event_text:
-                description = f"{description} 当日结构：{event_text}。"
+                description = f"{description} Intraday structure: {event_text}."
             put_daily_item(
                 date=today,
-                title="当日发酵",
+                title="Intraday activity",
                 description=description,
                 source="eastmoney_board_change",
             )
@@ -2648,8 +2648,8 @@ class DsaEastMoneyHotspotProvider:
         ]
         if not route:
             route.append({
-                "title": "等待发酵",
-                "description": "暂未获取到明确催化事件，可继续观察涨跌幅、成交额和核心个股联动。",
+                "title": "Awaiting catalyst",
+                "description": "No clear catalyst event found yet; keep watching price change, turnover and core-stock co-movement.",
                 "source": "fallback",
                 "date": today,
                 "published_at": today,
@@ -2681,7 +2681,7 @@ class DsaEastMoneyHotspotProvider:
                 continue
             events.append({
                 "type": event_type,
-                "label": self._CHANGE_EVENT_LABELS.get(event_type, f"异动类型 {event_type}"),
+                "label": self._CHANGE_EVENT_LABELS.get(event_type, f"move type {event_type}"),
                 "count": count,
             })
         return sorted(events, key=lambda item: item["count"], reverse=True)
@@ -2858,7 +2858,7 @@ class DsaEastMoneyHotspotProvider:
                 "code": code,
                 "name": name,
                 "change_pct": _safe_float(row.get("涨跌幅")),
-                "role": f"{group}活跃股",
+                "role": f"{group} active stock",
                 "hot_stock_score": 35.0,
                 "source": "eastmoney_board_change.related_group",
             })
@@ -2926,7 +2926,7 @@ class DsaEastMoneyHotspotProvider:
                 "amount": _safe_float(row.get("amount") or row.get("成交额") or row.get("成交金额")),
                 "turnover_rate": _safe_float(row.get("turnover_rate") or row.get("换手率")),
                 "volume_ratio": _safe_float(row.get("volume_ratio") or row.get("量比")),
-                "role": _env_text(row.get("role")) or "概念股",
+                "role": _env_text(row.get("role")) or "Concept stock",
                 "hot_stock_score": _safe_float(row.get("hot_stock_score")) or 0.0,
             })
         return records
@@ -3666,34 +3666,34 @@ def _build_dsa_analysis_summary(
     price = _first_non_empty(quote.get("price"), candidate.get("price"))
     change_pct = _first_non_empty(quote.get("change_pct"), candidate.get("change_pct"))
     if price is not None:
-        text = f"DSA行情：现价 {price}"
+        text = f"DSA quote: last price {price}"
         if change_pct is not None:
-            text += f"，涨跌幅 {change_pct}%"
+            text += f", change {change_pct}%"
         parts.append(text)
 
     coverage = fundamentals.get("coverage") if isinstance(fundamentals, dict) else {}
     if isinstance(coverage, dict) and coverage:
         available_blocks = [key for key, value in coverage.items() if str(value).lower() in {"available", "partial"}]
         if available_blocks:
-            parts.append(f"DSA基本面覆盖：{', '.join(available_blocks[:4])}")
+            parts.append(f"DSA fundamentals coverage: {', '.join(available_blocks[:4])}")
 
     news_results = news.get("results") if isinstance(news, dict) else []
     if isinstance(news_results, list) and news_results:
         titles = [str(item.get("title") or "").strip() for item in news_results if isinstance(item, dict)]
         titles = [title for title in titles if title]
         if titles:
-            parts.append(f"DSA新闻：{'；'.join(titles[:2])}")
+            parts.append(f"DSA news: {'; '.join(titles[:2])}")
 
     event_results = events.get("results") if isinstance(events, dict) else []
     if isinstance(event_results, list) and event_results:
         titles = [str(item.get("title") or "").strip() for item in event_results if isinstance(item, dict)]
         titles = [title for title in titles if title]
         if titles:
-            parts.append(f"DSA事件：{'；'.join(titles[:2])}")
+            parts.append(f"DSA events: {'; '.join(titles[:2])}")
 
     if not parts:
         return ""
-    return "；".join(parts)
+    return "; ".join(parts)
 
 
 def _ensure_supported_market(market: str) -> None:
@@ -3716,8 +3716,8 @@ def _ensure_supported_market(market: str) -> None:
             detail={
                 "error": "screening_invalid_market",
                 "message": (
-                    f"市场 {market} 不在选股功能支持范围内"
-                    f"（支持市场：{', '.join(map(str, normalized)) or '未知'}）。"
+                    f"Market {market} is not supported by screening "
+                    f"(supported markets: {', '.join(map(str, normalized)) or 'unknown'})."
                 ),
             },
         )
@@ -3860,13 +3860,13 @@ def _build_candidate_reason(item: Dict[str, Any]) -> str:
             reverse=True,
         )[:3]
         if top_factors:
-            factor_text = "、".join(f"{key} {value:.1f}" for key, value in top_factors)
-            parts.append(f"主要因子：{factor_text}")
+            factor_text = ", ".join(f"{key} {value:.1f}" for key, value in top_factors)
+            parts.append(f"Key factors: {factor_text}")
     if item.get("industry"):
-        parts.append(f"行业：{item['industry']}")
+        parts.append(f"Industry: {item['industry']}")
     if item.get("risk_level"):
-        parts.append(f"风险等级：{item['risk_level']}")
-    return "；".join(parts)
+        parts.append(f"Risk level: {item['risk_level']}")
+    return "; ".join(parts)
 
 
 def _to_plain(value: Any) -> Any:

@@ -359,7 +359,7 @@ class TestSkillManager(unittest.TestCase):
         instructions = self.manager.get_skill_instructions()
         self.assertIn("Test Skill (demo)", instructions)
         self.assertIn("Instructions for demo", instructions)
-        self.assertIn("技能 1:", instructions)
+        self.assertIn("Skill 1:", instructions)
 
     def test_get_required_tools(self):
         s1 = _make_skill("s1")

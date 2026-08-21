@@ -258,7 +258,7 @@ class TestLongbridgeAuthSelection(unittest.TestCase):
                 ctx = fetcher._get_ctx()
 
         self.assertIsNone(ctx)
-        self.assertIn("不支持 OAuth 2.0", "\n".join(logs.output))
+        self.assertIn("does not support OAuth 2.0", "\n".join(logs.output))
         mock_quote_context.assert_not_called()
 
     @patch("src.config.get_config")

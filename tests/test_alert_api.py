@@ -588,7 +588,7 @@ class AlertApiTestCase(unittest.TestCase):
         self.assertEqual(payload["evaluated_count"], 1)
         self.assertEqual(payload["triggered_count"], 1)
         self.assertEqual(payload["target_results"][0]["target"], "cn")
-        self.assertEqual(payload["target_results"][0]["display_target"], "A股大盘")
+        self.assertEqual(payload["target_results"][0]["display_target"], "A-share market")
         self.assertEqual(payload["target_results"][0]["observed_value"], 35.0)
         build_snapshot.assert_called_once_with("cn")
 

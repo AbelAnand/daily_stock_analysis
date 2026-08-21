@@ -1,9 +1,16 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { analysisApi } from '../../../api/analysis';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
 import { historyApi } from '../../../api/history';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import type { RunFlowSnapshot } from '../../../types/runFlow';
 import { RunFlowPanel } from '../RunFlowPanel';
+
+function render(ui: ReactElement) {
+  return rtlRender(<UiLanguageProvider>{ui}</UiLanguageProvider>);
+}
 
 vi.mock('../../../api/analysis', () => ({
   analysisApi: {
@@ -238,6 +245,7 @@ const contextBlockSnapshot: RunFlowSnapshot = {
 describe('RunFlowPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
   });
 
   it('renders loading state while the snapshot request is pending', () => {

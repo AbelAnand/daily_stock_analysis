@@ -113,7 +113,7 @@ class AlertTriggerItem(BaseModel):
     analysis_visibility_source: Optional[str] = Field(
         None,
         description=(
-            "公开摘要来源：alert_trigger_market_context / analysis_history_snapshot / "
+            "Public summary source: alert_trigger_market_context / analysis_history_snapshot / "
             "evaluator_snapshot / legacy_text / null"
         ),
     )

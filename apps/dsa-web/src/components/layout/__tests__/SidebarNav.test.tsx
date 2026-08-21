@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import { SidebarNav } from '../SidebarNav';
 
 const mockLogout = vi.fn().mockResolvedValue(undefined);
@@ -36,13 +38,19 @@ vi.mock('../../theme/ThemeToggle', () => ({
 }));
 
 describe('SidebarNav', () => {
+  beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+  });
+
   it('hides the screening navigation item while Screening is disabled', () => {
     mockGetScreeningStatus.mockResolvedValueOnce({ enabled: false, available: true });
 
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <SidebarNav />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <SidebarNav />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(screen.queryByRole('link', { name: '选股' })).not.toBeInTheDocument();
@@ -52,9 +60,11 @@ describe('SidebarNav', () => {
     mockGetScreeningStatus.mockResolvedValueOnce({ enabled: true, available: true });
 
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <SidebarNav />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <SidebarNav />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(await screen.findByRole('link', { name: '选股' })).toHaveAttribute('href', '/screening');
@@ -68,9 +78,11 @@ describe('SidebarNav', () => {
       .mockResolvedValueOnce({ enabled: true, available: true });
 
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <SidebarNav />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <SidebarNav />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(screen.queryByRole('link', { name: '选股' })).not.toBeInTheDocument();
@@ -84,9 +96,11 @@ describe('SidebarNav', () => {
     completionBadgeState.value = true;
 
     const { rerender } = render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <SidebarNav />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/chat']}>
+          <SidebarNav />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(screen.getByTestId('chat-completion-badge')).toBeInTheDocument();
@@ -94,9 +108,11 @@ describe('SidebarNav', () => {
 
     completionBadgeState.value = false;
     rerender(
-      <MemoryRouter initialEntries={['/chat']}>
-        <SidebarNav />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/chat']}>
+          <SidebarNav />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(screen.queryByTestId('chat-completion-badge')).not.toBeInTheDocument();
@@ -104,9 +120,11 @@ describe('SidebarNav', () => {
 
   it('renders the collapsed theme toggle variant when the sidebar is collapsed', () => {
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <SidebarNav collapsed />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <SidebarNav collapsed />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(mockThemeToggle).toHaveBeenCalledWith(
@@ -117,9 +135,11 @@ describe('SidebarNav', () => {
 
   it('renders the alerts navigation item and marks it active', () => {
     render(
-      <MemoryRouter initialEntries={['/alerts']}>
-        <SidebarNav />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/alerts']}>
+          <SidebarNav />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const alertsLink = screen.getByRole('link', { name: '告警' });
@@ -129,9 +149,11 @@ describe('SidebarNav', () => {
 
   it('renders the AI signals navigation item and marks it active', () => {
     render(
-      <MemoryRouter initialEntries={['/decision-signals']}>
-        <SidebarNav />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/decision-signals']}>
+          <SidebarNav />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const signalsLink = screen.getByRole('link', { name: 'AI 建议' });
@@ -141,9 +163,11 @@ describe('SidebarNav', () => {
 
   it('opens the logout confirmation and confirms logout', async () => {
     render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <SidebarNav />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/chat']}>
+          <SidebarNav />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(screen.getByRole('button', { name: '退出' }));

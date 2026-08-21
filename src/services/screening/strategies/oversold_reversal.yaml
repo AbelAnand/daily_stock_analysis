@@ -2,8 +2,8 @@
 # Licensed under Apache-2.0 and modified for daily_stock_analysis.
 # 超跌反转策略
 name: oversold_reversal
-display_name: 超跌反转
-description: 跌幅可控、流动性仍在、具备修复观察价值的反转候选
+display_name: Oversold Reversal
+description: Reversal candidates with a contained drawdown, intact liquidity and a recovery worth watching
 version: "1.1"
 category: reversal
 tags: [reversal, oversold, repair]
@@ -14,7 +14,7 @@ style:
   execution_style: reversal
   market_regime: [oversold_repair, range_bound]
   capital_profile: medium_liquidity
-  ui_badge: 反转
+  ui_badge: Reversal
 
 screening:
   enabled: true
@@ -66,8 +66,8 @@ screening:
     controlled_reversal_bonus: 2.0
     volume_spike_ratio: 5.5
   ranking_hints: |
-    优先关注：
-    1. 下跌幅度可控、不是基本面或退市风险驱动的连续杀跌
-    2. 成交额和换手仍能支撑后续修复，避免流动性塌陷
-    3. 若存在错杀、事件落地或板块修复线索，可提高优先级
+    Priorities:
+    1. Drawdown is contained and not a continuous sell-off driven by fundamentals or delisting risk
+    2. Turnover and activity can still support a recovery; avoid liquidity collapse
+    3. Raise priority when there are signs of mispricing, event resolution or sector recovery
   max_output: 5

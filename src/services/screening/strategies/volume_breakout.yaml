@@ -2,8 +2,8 @@
 # Licensed under Apache-2.0 and modified for daily_stock_analysis.
 # 放量突破选股策略
 name: volume_breakout
-display_name: 放量突破
-description: 成交量放大突破关键阻力位，趋势启动信号
+display_name: Volume Breakout
+description: Volume expansion breaking key resistance, signalling a trend start
 version: "1.2"
 category: trend
 tags: [momentum, volume, breakout]
@@ -14,7 +14,7 @@ style:
   execution_style: breakout
   market_regime: [risk_on, trend, high_volume]
   capital_profile: high_liquidity
-  ui_badge: 突破
+  ui_badge: Breakout
 
 screening:
   enabled: true
@@ -69,9 +69,9 @@ screening:
     hot_money_activity_min: 96.0
     hot_money_penalty: 1.4
   ranking_hints: |
-    优先关注：
-    1. 突破前有明显横盘整理（至少 10 个交易日）
-    2. 突破当日量比和换手同步放大，且日 K 信号仍健康
-    3. 突破后股价至少站上 MA20，优先考虑均线结构更顺的候选
-    4. 板块有联动效应更佳
+    Priorities:
+    1. Clear sideways consolidation before the breakout (at least 10 trading days)
+    2. Volume ratio and turnover expand together on breakout day while daily candles stay healthy
+    3. Price holds above MA20 after the breakout; prefer candidates with a cleaner moving-average structure
+    4. Sector co-movement is a plus
   max_output: 5

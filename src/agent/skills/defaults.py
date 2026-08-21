@@ -60,6 +60,47 @@ CORE_TRADING_SKILL_POLICY_ZH = """## 默认技能基线（必须严格遵守）
 - 强势趋势股可适当放宽乖离率要求，轻仓追踪但需设止损
 """
 
+CORE_TRADING_SKILL_POLICY_EN = """## Default Skill Baseline (must be followed strictly)
+
+The currently activated skills may add and refine analysis perspectives, but the default
+risk controls and trading rhythm must follow the baseline below.
+The baseline is an input to position sizing and risk, not a veto on the verdict: the verdict
+is decided by expected value (EV) and the reward:risk ratio.
+
+### 1. Strict entry (bias from MA5 -> sizing and stop input, not a direct veto)
+- Bias < 2%: ideal buy zone; a normal suggested position is allowed
+- Bias 2-5%: enter with a small position; note staged entries and pullback confirmation
+- Bias > 5%: high chasing risk -- if the verdict is still buy, cut the suggested size sharply,
+  widen and state the stop-loss explicitly, and flag "high-bias chasing risk" in the risk notes;
+  do not mechanically rewrite the verdict to "watch" just because the bias is over the threshold
+
+### 2. Trend trading (go with the trend; counter-trend means lower weight, not a ban)
+- **Bullish alignment first**: MA5 > MA10 > MA20 offers the highest long win rate
+- Without bullish alignment, reduce long weighting: avoid heavy longs, or give an avoid/reduce/sell
+  verdict under the same EV contract instead of a blanket "don't touch"; a long call under bearish
+  alignment must cite a clear structural reason and a stricter stop
+- Diverging, rising moving averages beat converging ones
+
+### 3. Efficiency first (chip structure)
+- Watch chip concentration: 90% concentration < 15% means chips are concentrated
+- Profit ratio: with 70-90% of holders in profit, beware of profit-taking
+- Average cost vs. price: price 5-15% above average cost is healthy
+
+### 4. Entry preference (pullback to support)
+- **Best entry**: low-volume pullback to MA5 that finds support
+- **Second-best entry**: pullback to MA10 that finds support
+- **Watch case**: stay on watch after a break below MA20
+
+### 5. Key risk checks
+- Insider selling announcements, profit warnings, regulatory penalties, adverse sector policy, large lock-up expirations
+
+### 6. Valuation (PE/PB)
+- A clearly elevated PE must be called out in the risk points
+
+### 7. Relaxation for strong trend names
+- Strong trend stocks may be given a looser bias requirement: track with a light position but always set a stop
+"""
+
 TECHNICAL_SKILL_RULES_EN = """## Default Skill Baseline
 
 Treat the currently activated skills as the primary analysis lens, but keep the
@@ -78,16 +119,23 @@ reward:risk:
 """
 
 
-def get_default_trading_skill_policy(*, explicit_skill_selection: bool) -> str:
+def get_default_trading_skill_policy(
+    *, explicit_skill_selection: bool, report_language: str = "en"
+) -> str:
     """Return the legacy default trading baseline only for implicit/default runs.
 
     When a caller explicitly chooses a skill (via request payload or config),
     analysis should follow that selected skill alone instead of silently
     layering the old bull-trend baseline on top.
+
+    English is the base language; the Chinese variant is only used when the
+    report language is explicitly ``zh``.
     """
     if explicit_skill_selection:
         return ""
-    return CORE_TRADING_SKILL_POLICY_ZH
+    if str(report_language or "").strip().lower() == "zh":
+        return CORE_TRADING_SKILL_POLICY_ZH
+    return CORE_TRADING_SKILL_POLICY_EN
 
 
 def get_default_technical_skill_policy(*, explicit_skill_selection: bool) -> str:

@@ -70,7 +70,7 @@ def test_format_decision_signal_excerpt_formats_chinese_list_and_dict_fields() -
         "reason": "跌破止损线",
         "watch_conditions": ["观察 1660 支撑", "等待成交量收缩"],
         "risk_summary": {"drawdown": "组合回撤扩大"},
-    })
+    }, report_language="zh")
 
     assert excerpt.startswith("**AI 决策信号**")
     assert "动作: 卖出 | 周期: 3d | 报告: #88" in excerpt
@@ -84,15 +84,29 @@ def test_format_decision_signal_excerpt_formats_english_and_redacts_text() -> No
         "action": "alert",
         "horizon": "5d",
         "reason": "authorization: Bearer raw-token",
-        "watch_conditions": "Check price",
+        "watch_conditions": ["Check price", "Wait for volume to confirm"],
         "risk_summary": "token=hidden",
     }, report_language="en")
 
     assert excerpt.startswith("**AI decision signal**")
     assert "Action: alert | Horizon: 5d" in excerpt
     assert "- Reason: authorization: [REDACTED]" in excerpt
-    assert "- Watch: Check price" in excerpt
+    assert "- Watch: Check price; Wait for volume to confirm" in excerpt
     assert "- Risk: token=[REDACTED]" in excerpt
+
+
+def test_format_decision_signal_excerpt_formats_korean() -> None:
+    """Korean reports must render Korean labels, not silently fall back to Chinese."""
+    excerpt = format_decision_signal_excerpt({
+        "action": "hold",
+        "horizon": "5d",
+        "reason": "Awaiting confirmation",
+        "watch_conditions": ["Check MA5", "Confirm volume"],
+    }, report_language="ko")
+
+    assert excerpt.startswith("**AI 결정 신호**")
+    assert "동작: hold | 기간: 5d" in excerpt
+    assert "- 관찰 조건: Check MA5; Confirm volume" in excerpt
 
 
 def test_format_decision_signal_excerpt_preserves_complete_sanitized_reason() -> None:
@@ -106,7 +120,7 @@ def test_format_decision_signal_excerpt_preserves_complete_sanitized_reason() ->
         "reason": f"{reason} token=secret-value",
         "watch_conditions": "观察" * 80,
         "risk_summary": "风险" * 80,
-    })
+    }, report_language="zh")
 
     assert f"- 理由: {reason} token=[REDACTED]" in excerpt
     assert "切勿盲目追高。" in excerpt

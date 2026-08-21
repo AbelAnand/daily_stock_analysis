@@ -1,6 +1,17 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import { AuthSettingsCard } from '../AuthSettingsCard';
+
+function withLanguage(ui: ReactElement): ReactElement {
+  return <UiLanguageProvider>{ui}</UiLanguageProvider>;
+}
+
+function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(withLanguage(ui), options);
+}
 
 const { refreshStatus, updateSettings, useAuthMock } = vi.hoisted(() => ({
   refreshStatus: vi.fn(),
@@ -21,6 +32,7 @@ vi.mock('../../../api/auth', () => ({
 describe('AuthSettingsCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
     useAuthMock.mockReturnValue({
       authEnabled: false,
       setupState: 'no_password',

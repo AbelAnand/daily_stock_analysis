@@ -1,46 +1,46 @@
-# MA Golden Cross Strategy / 均线金叉
+# MA Golden Cross Strategy
 # MA5 crosses above MA10 (or MA10 above MA20) with volume confirmation.
 
 name: ma_golden_cross
-display_name: 均线金叉
-description: 检测均线金叉配合量能确认信号，经典的趋势反转/延续信号。
+display_name: MA Golden Cross
+description: Detects a moving-average golden cross with volume confirmation — a classic trend reversal/continuation signal.
 category: trend
 core_rules: [1, 2, 3]
 required_tools:
   - get_daily_history
   - analyze_trend
-aliases: [均线金叉, 金叉]
+aliases: [ma golden cross, golden cross]
 default_priority: 20
 market_regimes: [trending_up]
 
 instructions: |
-  **均线金叉（MA Golden Cross Strategy）**
+  **MA Golden Cross Strategy**
 
-  信号判定标准：
+  Signal criteria:
 
-  1. **金叉检测**（关联理念2：趋势交易）：
-     - 使用 `analyze_trend` 检查均线排列和 MACD 状态。
-     - 主信号：MA5 在最近 3 个交易日内上穿 MA10。
-     - 强信号：MA10 上穿 MA20（更慢但更可靠）。
-     - 检查 MACD 状态是否为金叉或零轴上方金叉。
+  1. **Detect the golden cross** (relates to core rule 2: trend trading):
+     - Use `analyze_trend` to check the moving-average alignment and MACD status.
+     - Primary signal: MA5 crosses above MA10 within the last 3 trading days.
+     - Strong signal: MA10 crosses above MA20 (slower but more reliable).
+     - Check whether MACD shows a golden cross, or a golden cross above the zero line.
 
-  2. **量能确认**（关联理念3：效率优先）：
-     - 金叉日成交量应高于 5 日均量。
-     - 使用 `get_daily_history` 验证。
-     - 金叉日量比 > 1.2 为积极信号。
+  2. **Volume confirmation** (relates to core rule 3: efficiency first):
+     - Volume on the cross day should exceed the 5-day average volume.
+     - Verify with `get_daily_history`.
+     - A volume ratio > 1.2 on the cross day is a positive signal.
 
-  3. **趋势背景**：
-     - 盘整后金叉：最强信号。
-     - 上升趋势中金叉：延续信号。
-     - 深度下跌中金叉：弱信号，需更多确认。
+  3. **Trend context**:
+     - A golden cross after consolidation: the strongest signal.
+     - A golden cross within an uptrend: a continuation signal.
+     - A golden cross during a deep decline: a weak signal, needs more confirmation.
 
-  4. **价格位置**（关联理念1：严进策略）：
-     - 价格应在交叉均线附近或上方。
-     - 乖离率 < 5% — 避免追高延迟入场。
+  4. **Price position** (relates to core rule 1: strict entry):
+     - Price should be near or above the crossing moving averages.
+     - Bias < 5% -- avoid a delayed entry chasing strength.
 
-  评分调整：
-  - MA5 × MA10 金叉配合量能：sentiment_score +10
-  - MA10 × MA20 金叉：sentiment_score +8
-  - MACD 零轴上方金叉：额外 +5
-  - 在 `ma_analysis` 和 `buy_reason` 中注明"均线金叉"。
-  - 理想买点设在交叉均线水平附近。
+  Suggested score adjustments:
+  - MA5 x MA10 golden cross with volume confirmation: sentiment_score +10
+  - MA10 x MA20 golden cross: sentiment_score +8
+  - MACD golden cross above the zero line: an additional +5
+  - Note "MA golden cross" in `ma_analysis` and `buy_reason`.
+  - Set the ideal buy point near the level of the crossing moving averages.

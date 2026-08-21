@@ -240,11 +240,11 @@ class OrchestratorRiskConsumptionTest(unittest.TestCase):
     def test_default_position_size_applies_factor(self):
         from src.agent.orchestrator import _default_position_size
 
-        self.assertEqual(_default_position_size("buy"), "轻仓试仓")
-        self.assertEqual(_default_position_size("buy", 1.0), "轻仓试仓")
+        self.assertEqual(_default_position_size("buy"), "Light starter position")
+        self.assertEqual(_default_position_size("buy", 1.0), "Light starter position")
         self.assertIn("0.60", _default_position_size("buy", 0.6))
-        self.assertIn("轻仓试仓", _default_position_size("buy", 0.6))
-        self.assertIn("暂不建仓", _default_position_size("buy", 0.0))
+        self.assertIn("Light starter position", _default_position_size("buy", 0.6))
+        self.assertIn("No new position", _default_position_size("buy", 0.0))
 
     def test_finalize_scales_position_and_appends_stop_tightening(self):
         from src.agent.protocols import AgentContext
@@ -274,7 +274,7 @@ class OrchestratorRiskConsumptionTest(unittest.TestCase):
         self.assertIn("五成仓", strategy["suggested_position"])
         self.assertIn("0.60", strategy["suggested_position"])
         self.assertIn("止损 95", strategy["risk_control"])
-        self.assertIn("收紧止损", strategy["risk_control"])
+        self.assertIn("tightened", strategy["risk_control"])
 
     def test_finalize_surfaces_hold_reason_and_decision_rule(self):
         from src.agent.protocols import AgentContext
@@ -300,7 +300,7 @@ class OrchestratorRiskConsumptionTest(unittest.TestCase):
         self.assertEqual(consensus_decision["decision_rule"], "divergence_hold")
         self.assertEqual(consensus_decision["hold_reason"], hold_reason)
         self.assertTrue(
-            any("hold 原因" in str(point) for point in result["key_points"]),
+            any("hold reason" in str(point) for point in result["key_points"]),
             result["key_points"],
         )
 

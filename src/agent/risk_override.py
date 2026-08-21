@@ -329,8 +329,8 @@ def build_risk_override_plan(
         )
     )
     stop_tightening_note = (
-        "风险级别达到 medium 及以上但未触发否决：必须收紧止损，"
-        "并按建议仓位系数压缩仓位。"
+        "Risk level is medium or higher without a veto: the stop-loss must be tightened "
+        "and the position reduced by the suggested position factor."
         if stop_tightening_required
         else ""
     )

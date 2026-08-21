@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import LoginPage from '../LoginPage';
+import { UiLanguageProvider } from '../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../utils/uiLanguage';
 
 const { navigate, useSearchParamsMock, useAuthMock } = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -25,6 +27,7 @@ describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.documentElement.className = 'light';
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
     useSearchParamsMock.mockReturnValue([new URLSearchParams('redirect=%2Fsettings')]);
   });
 
@@ -36,7 +39,7 @@ describe('LoginPage', () => {
       setupState: 'no_password',
     });
 
-    render(<LoginPage />);
+    render(<UiLanguageProvider><LoginPage /></UiLanguageProvider>);
 
     fireEvent.change(screen.getByLabelText('管理员密码'), { target: { value: 'passwd6' } });
     fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'passwd7' } });
@@ -55,7 +58,7 @@ describe('LoginPage', () => {
       setupState: 'enabled',
     });
 
-    render(<LoginPage />);
+    render(<UiLanguageProvider><LoginPage /></UiLanguageProvider>);
 
     fireEvent.change(screen.getByLabelText('登录密码'), { target: { value: 'passwd6' } });
     fireEvent.click(screen.getByRole('button', { name: '授权进入工作台' }));
@@ -71,7 +74,7 @@ describe('LoginPage', () => {
       setupState: 'enabled',
     });
 
-    const { container } = render(<LoginPage />);
+    const { container } = render(<UiLanguageProvider><LoginPage /></UiLanguageProvider>);
     const pageRoot = container.firstElementChild as HTMLElement | null;
 
     expect(pageRoot).not.toBeNull();

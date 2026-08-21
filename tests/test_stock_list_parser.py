@@ -60,18 +60,18 @@ class TestContract1PrefixedIndex:
         target = parse_analysis_target("sh000300")
         assert target.asset_type == ParseStatus.INDEX
         assert target.canonical_id == "sh000300"
-        assert target.display_code == "沪深300"
+        assert target.display_code == "CSI 300"
         assert target.exchange == "SH"
         assert target.normalized_prefix == "sh"
         assert target.normalized_code == "000300"
         assert target.matched_index is not None
-        assert target.matched_index.display_name == "沪深300"
+        assert target.matched_index.display_name == "CSI 300"
 
     def test_sz399001_resolves_to_index(self) -> None:
         target = parse_analysis_target("sz399001")
         assert target.asset_type == ParseStatus.INDEX
         assert target.canonical_id == "sz399001"
-        assert target.display_code == "深证成指"
+        assert target.display_code == "SZSE Component"
         assert target.exchange == "SZ"
 
     def test_uppercase_prefix_is_normalized(self) -> None:
@@ -135,7 +135,7 @@ class TestContract2BareCodeDefaultsToStock:
         # The conflict surface — registry's index entry is exposed but not
         # used for asset_type resolution.
         assert target.matched_index is not None
-        assert target.matched_index.display_name == "沪深300"
+        assert target.matched_index.display_name == "CSI 300"
 
     def test_bare_000001_is_stock(self) -> None:
         """Conflict code: ``000001`` is平安银行 (SZ stock) AND the深证成指
@@ -162,7 +162,7 @@ class TestContract2BareCodeDefaultsToStock:
         target = parse_analysis_target("000016")
         assert target.asset_type == ParseStatus.STOCK
         assert target.matched_index is not None
-        assert target.matched_index.display_name == "上证50"
+        assert target.matched_index.display_name == "SSE 50"
 
     def test_bare_300750_is_sz_stock(self) -> None:
         target = parse_analysis_target("300750")
@@ -382,7 +382,7 @@ class TestDefaultIndexRegistry:
         registry = default_index_registry()
         entry = registry.find_by_prefixed_code("sh", "000300")
         assert entry is not None
-        assert entry.display_name == "沪深300"
+        assert entry.display_name == "CSI 300"
 
     def test_default_registry_find_by_prefixed_code_rejects_non_sh_sz(self) -> None:
         registry = default_index_registry()
@@ -795,8 +795,8 @@ class TestExplicitExchangeSuffixRejections:
     @pytest.mark.parametrize(
         "code,expected_canonical,expected_display",
         [
-            ("sz399001.SZ", "sz399001", "深证成指"),
-            ("sz399006.SZ", "sz399006", "创业板指"),
+            ("sz399001.SZ", "sz399001", "SZSE Component"),
+            ("sz399006.SZ", "sz399006", "ChiNext"),
         ],
     )
     def test_sz_mixed_prefix_suffix_resolves_through_index_alias(

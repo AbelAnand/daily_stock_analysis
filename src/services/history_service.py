@@ -19,8 +19,10 @@ from src.config import get_config, resolve_news_window_days
 from src.data.stock_index_loader import resolve_index_stock_code
 from src.report_language import (
     get_bias_status_emoji,
+    localize_confidence_level,
     get_localized_stock_name,
     get_report_labels,
+    get_sentiment_label,
     get_signal_level,
     get_chip_unavailable_reason,
     is_chip_structure_unavailable,
@@ -206,13 +208,13 @@ class HistoryService:
                 try:
                     start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
                 except ValueError:
-                    logger.warning(f"无效的 start_date 格式: {start_date}")
+                    logger.warning(f"Invalid start_date format: {start_date}")
             
             if end_date:
                 try:
                     end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
                 except ValueError:
-                    logger.warning(f"无效的 end_date 格式: {end_date}")
+                    logger.warning(f"Invalid end_date format: {end_date}")
             
             # Calculate offset
             offset = (page - 1) * limit
@@ -238,7 +240,7 @@ class HistoryService:
             }
             
         except Exception as e:
-            logger.error(f"查询历史列表失败: {e}", exc_info=True)
+            logger.error(f"Failed to query history list: {e}", exc_info=True)
             raise
 
     @staticmethod
@@ -522,7 +524,7 @@ class HistoryService:
                 return None
             return self._record_to_detail_dict(record)
         except Exception as e:
-            logger.error(f"根据 ID 查询历史详情失败: {e}", exc_info=True)
+            logger.error(f"Failed to query history detail by ID: {e}", exc_info=True)
             return None
 
     @staticmethod
@@ -609,7 +611,10 @@ class HistoryService:
             "action_label": action_fields["action_label"],
             "trend_prediction": record.trend_prediction,
             "sentiment_score": record.sentiment_score,
-            "sentiment_label": self._get_sentiment_label(record.sentiment_score or 50),
+            "sentiment_label": self._get_sentiment_label(
+                record.sentiment_score or 50,
+                (raw_result or {}).get("report_language") if isinstance(raw_result, dict) else None,
+            ),
             "ideal_buy": sniper_points.get("ideal_buy"),
             "secondary_buy": sniper_points.get("secondary_buy"),
             "stop_loss": sniper_points.get("stop_loss"),
@@ -679,7 +684,7 @@ class HistoryService:
             return items
 
         except Exception as e:
-            logger.error(f"查询新闻情报失败: {e}", exc_info=True)
+            logger.error(f"Failed to query news intelligence: {e}", exc_info=True)
             return []
 
     def get_news_intel_by_record_id(self, record_id: int, limit: int = 20) -> List[Dict[str, str]]:
@@ -706,7 +711,7 @@ class HistoryService:
             return self.get_news_intel(query_id=record.query_id, limit=limit)
 
         except Exception as e:
-            logger.error(f"根据 record_id 查询新闻情报失败: {e}", exc_info=True)
+            logger.error(f"Failed to query news intelligence by record_id: {e}", exc_info=True)
             return []
 
     def _fallback_news_by_analysis_context(self, query_id: str, limit: int) -> List[Any]:
@@ -762,7 +767,7 @@ class HistoryService:
 
         return filtered[:limit]
     
-    def _get_sentiment_label(self, score: int) -> str:
+    def _get_sentiment_label(self, score: int, report_language: Optional[str] = None) -> str:
         """
         Get sentiment label based on score.
 
@@ -772,16 +777,7 @@ class HistoryService:
         Returns:
             Sentiment label
         """
-        if score >= 80:
-            return "极度乐观"
-        elif score >= 60:
-            return "乐观"
-        elif score >= 40:
-            return "中性"
-        elif score >= 20:
-            return "悲观"
-        else:
-            return "极度悲观"
+        return get_sentiment_label(score, normalize_report_language(report_language))
 
     def get_markdown_report(self, record_id: str) -> Optional[str]:
         """
@@ -877,7 +873,8 @@ class HistoryService:
                 trend_prediction=raw_result.get("trend_prediction", record.trend_prediction or ""),
                 operation_advice=raw_result.get("operation_advice", record.operation_advice or ""),
                 decision_type=raw_result.get("decision_type", "hold"),
-                confidence_level=raw_result.get("confidence_level", "中"),
+                confidence_level=raw_result.get("confidence_level")
+                or localize_confidence_level("medium", normalize_report_language(raw_result.get("report_language"))),
                 report_language=normalize_report_language(raw_result.get("report_language")),
                 action=raw_result.get("action"),
                 action_label=raw_result.get("action_label"),
@@ -1160,17 +1157,17 @@ class HistoryService:
         signal_attr = dashboard.get('signal_attribution', {}) if dashboard else {}
         if signal_attribution_has_content(signal_attr):
             report_lines.extend([
-                f"### 🎯 {labels.get('signal_attribution_heading', '信号归因分析')}",
+                f"### 🎯 {labels.get('signal_attribution_heading', 'Signal Attribution')}",
                 "",
             ])
             weight_items = signal_attribution_weight_items(signal_attr)
             if weight_items:
-                report_lines.append(f"**{labels.get('attribution_weights_label', '归因权重')}**:")
+                report_lines.append(f"**{labels.get('attribution_weights_label', 'Attribution Weights')}**:")
                 weight_labels = {
-                    "technical_indicators": ("📈", labels.get('technical_indicators_label', '技术指标')),
-                    "news_sentiment": ("📰", labels.get('news_sentiment_label', '新闻舆情')),
-                    "fundamentals": ("📊", labels.get('fundamentals_label', '基本面')),
-                    "market_conditions": ("🌐", labels.get('market_conditions_label', '市场环境')),
+                    "technical_indicators": ("📈", labels.get('technical_indicators_label', 'Technical Indicators')),
+                    "news_sentiment": ("📰", labels.get('news_sentiment_label', 'News Sentiment')),
+                    "fundamentals": ("📊", labels.get('fundamentals_label', 'Fundamentals')),
+                    "market_conditions": ("🌐", labels.get('market_conditions_label', 'Market Conditions')),
                 }
                 for key, value in weight_items:
                     icon, label = weight_labels[key]
@@ -1179,9 +1176,9 @@ class HistoryService:
             bullish = signal_attr.get('strongest_bullish_signal')
             bearish = signal_attr.get('strongest_bearish_signal')
             if bullish:
-                report_lines.append(f"**🐂 {labels.get('strongest_bullish_signal_label', '最强看多信号')}**: {bullish}")
+                report_lines.append(f"**🐂 {labels.get('strongest_bullish_signal_label', 'Strongest Bullish Signal')}**: {bullish}")
             if bearish:
-                report_lines.append(f"**🐻 {labels.get('strongest_bearish_signal_label', '最强看空信号')}**: {bearish}")
+                report_lines.append(f"**🐻 {labels.get('strongest_bearish_signal_label', 'Strongest Bearish Signal')}**: {bearish}")
             report_lines.append("")
 
         # ========== 多策略综合 ==========
@@ -1192,35 +1189,35 @@ class HistoryService:
             confidence = strategy_synthesis.get('confidence')
             confidence_text = f"{confidence:.0%}" if isinstance(confidence, (int, float)) else "N/A"
             report_lines.extend([
-                f"### 🧩 {labels.get('strategy_synthesis_heading', '多策略综合')}",
+                f"### 🧩 {labels.get('strategy_synthesis_heading', 'Strategy Synthesis')}",
                 "",
                 (
-                    f"- {labels.get('strategy_final_signal_label', '综合信号')}: "
+                    f"- {labels.get('strategy_final_signal_label', 'Final Signal')}: "
                     f"{localize_strategy_signal(strategy_synthesis.get('final_signal', 'N/A'), report_language)} | "
-                    f"{labels.get('strategy_consensus_level_label', '共识度')}: "
+                    f"{labels.get('strategy_consensus_level_label', 'Consensus')}: "
                     f"{localize_consensus_level(strategy_synthesis.get('consensus_level', 'N/A'), report_language)} | "
-                    f"{labels.get('strategy_conflict_label', '冲突')}: "
+                    f"{labels.get('strategy_conflict_label', 'Conflict')}: "
                     f"{localize_conflict_severity(strategy_synthesis.get('conflict_severity', 'none'), report_language)} "
                     f"({strategy_synthesis.get('conflict_count', 0)}) | "
-                    f"{labels.get('strategy_confidence_label', '置信度')}: {confidence_text}"
+                    f"{labels.get('strategy_confidence_label', 'Confidence')}: {confidence_text}"
                 ),
             ])
             summary = localize_strategy_synthesis_summary(strategy_synthesis, report_language)
             if summary:
-                report_lines.append(f"- {labels.get('strategy_summary_label', '综合说明')}: {summary}")
+                report_lines.append(f"- {labels.get('strategy_summary_label', 'Summary')}: {summary}")
             report_lines.append(
-                f"- {labels.get('strategy_supporting_skills_label', '支持策略')}: "
+                f"- {labels.get('strategy_supporting_skills_label', 'Supporting Strategies')}: "
                 f"{self._format_strategy_skill_items(strategy_synthesis.get('supporting_skills'), report_language)}"
             )
             report_lines.append(
-                f"- {labels.get('strategy_opposing_skills_label', '反方策略')}: "
+                f"- {labels.get('strategy_opposing_skills_label', 'Opposing Strategies')}: "
                 f"{self._format_strategy_skill_items(strategy_synthesis.get('opposing_skills'), report_language)}"
             )
             invalid_count = strategy_invalid_opinion_count(strategy_synthesis)
             if invalid_count:
                 invalid_label_template = labels.get(
                     "strategy_invalid_opinions_label",
-                    "另有 {count} 个策略解析失败",
+                    "{count} additional strategies failed to produce valid signals",
                 )
                 try:
                     invalid_text = invalid_label_template.format(count=invalid_count)

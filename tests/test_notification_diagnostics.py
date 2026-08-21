@@ -63,8 +63,8 @@ class NotificationDiagnosticsTestCase(unittest.TestCase):
         self.assertIn("no_channels_configured", {item.code for item in result.errors})
 
         output = format_notification_diagnostics(result)
-        self.assertIn("已配置渠道: 0 个", output)
-        self.assertIn("0 个通知渠道已配置", output)
+        self.assertIn("Configured channels: 0", output)
+        self.assertIn("0 notification channels configured", output)
 
     def test_partial_config_reports_missing_pair(self):
         result = run_notification_diagnostics(_config(telegram_bot_token="TOKEN"))

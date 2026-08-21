@@ -37,13 +37,13 @@ _DEFAULT_RISK_PROFILE = {
     "fetch_failed_daily_points": 6.0,
 }
 _DEFAULT_PORTFOLIO_BUCKETS = {
-    "金融": ("券商", "银行", "保险", "金融"),
-    "地产链": ("地产", "房地产", "建材", "家居", "物业"),
-    "新能源": ("新能源", "光伏", "锂电", "电池", "储能"),
-    "AI算力": ("AI算力", "算力", "数据中心", "服务器", "光模块"),
-    "消费": ("白酒", "食品", "家电", "零售", "消费"),
-    "医药": ("医药", "医疗", "创新药"),
-    "半导体": ("半导体", "芯片"),
+    "Financials": ("Brokerage", "Banking", "Insurance", "券商", "银行", "保险", "金融"),
+    "Real Estate Chain": ("Real Estate", "地产", "房地产", "建材", "家居", "物业"),
+    "New Energy": ("New Energy", "新能源", "光伏", "锂电", "电池", "储能"),
+    "AI Compute": ("AI Compute", "AI算力", "算力", "数据中心", "服务器", "光模块"),
+    "Consumer": ("Liquor", "白酒", "食品", "家电", "零售", "消费"),
+    "Pharma": ("Pharma", "医药", "医疗", "创新药"),
+    "Semiconductors": ("Semiconductors", "半导体", "芯片"),
 }
 
 
@@ -252,15 +252,15 @@ def _canonical_sector(label: str) -> str:
     if not cleaned:
         return ""
     aliases = {
-        "券商": ("券商", "证券"),
-        "银行": ("银行",),
-        "保险": ("保险",),
-        "地产": ("地产", "房地产"),
-        "医药": ("医药", "医疗", "创新药"),
-        "白酒": ("白酒", "酿酒"),
-        "半导体": ("半导体", "芯片"),
-        "AI算力": ("AI算力", "算力", "数据中心"),
-        "新能源": ("新能源", "光伏", "锂电", "电池"),
+        "Brokerage": ("券商", "证券"),
+        "Banking": ("银行",),
+        "Insurance": ("保险",),
+        "Real Estate": ("地产", "房地产"),
+        "Pharma": ("医药", "医疗", "创新药"),
+        "Liquor": ("白酒", "酿酒"),
+        "Semiconductors": ("半导体", "芯片"),
+        "AI Compute": ("AI算力", "算力", "数据中心"),
+        "New Energy": ("新能源", "光伏", "锂电", "电池"),
     }
     for canonical, needles in aliases.items():
         if any(needle in cleaned for needle in needles):

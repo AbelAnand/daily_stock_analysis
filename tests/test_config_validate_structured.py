@@ -123,7 +123,7 @@ class TestValidateStructuredStockList:
         errors = [i for i in issues if i.severity == "error"]
         stock_errors = [i for i in errors if i.field == "STOCK_LIST"]
         assert stock_errors
-        assert "未配置 STOCK_LIST" in stock_errors[0].message
+        assert "STOCK_LIST is not configured" in stock_errors[0].message
         assert "600519,hk00700,AAPL" in stock_errors[0].message
 
     def test_configured_stock_list_no_stock_error(self):
@@ -140,7 +140,7 @@ class TestValidateStructuredStockList:
         warning = next(i for i in issues if i.field == "STOCK_GROUP_N")
         assert warning.severity == "warning"
         assert "000001" in warning.message
-        assert "邮件路由" in warning.message
+        assert "email routing" in warning.message
         assert "STOCK_LIST" in warning.message
 
     def test_stock_email_groups_subset_of_stock_list_has_no_warning(self):
@@ -278,8 +278,8 @@ class TestValidateStructuredLLM:
 
         error = next(i for i in issues if i.field == "AGENT_GENERATION_BACKEND")
         assert error.severity == "error"
-        assert "auto、litellm" in error.message
-        assert "不支持 Agent 工具调用" in error.message
+        assert "auto, litellm" in error.message
+        assert "do not support Agent tool calls" in error.message
         assert "hermes" in error.message
 
     @pytest.mark.parametrize("generation_backend", LOCAL_CLI_BACKENDS)
@@ -307,14 +307,14 @@ class TestValidateStructuredLLM:
 
         error = next(i for i in issues if i.field == "LITELLM_MODEL")
         assert error.severity == "error"
-        assert "不是 LiteLLM provider" in error.message
+        assert "not a LiteLLM provider" in error.message
         assert local_backend in error.message
 
     def test_no_llm_is_error(self):
         """Empty llm_model_list must produce an error regardless of legacy keys."""
         cfg = _make_config(llm_model_list=[])
         issues = cfg.validate_structured()
-        assert any(i.severity == "error" and "AI 模型" in i.message for i in issues)
+        assert any(i.severity == "error" and "AI model" in i.message for i in issues)
 
     def test_validate_missing_all_llm_keys_reports_error(self):
         cfg = _make_config(
@@ -330,7 +330,7 @@ class TestValidateStructuredLLM:
         issues = cfg.validate_structured()
 
         error = next(i for i in issues if i.severity == "error" and i.field == "LITELLM_CONFIG")
-        assert "未配置任何可用的 AI 模型接入" in error.message
+        assert "No usable AI model access is configured" in error.message
         assert "ANSPIRE_API_KEYS" in error.message
         assert "DEEPSEEK_API_KEY" in error.message
 
@@ -354,7 +354,7 @@ class TestValidateStructuredLLM:
         issues = cfg.validate_structured()
 
         error = next(i for i in issues if i.severity == "error" and i.field == "LLM_CHANNELS")
-        assert "已配置 LLM_CHANNELS" in error.message
+        assert "LLM_CHANNELS is set" in error.message
         assert "LLM_<CHANNEL>_MODELS" in error.message
         assert not any(i.severity == "error" and i.field == "ANSPIRE_API_KEYS" for i in issues)
 
@@ -426,7 +426,7 @@ class TestValidateStructuredLLM:
         assert llm_issues, "Expected an info issue about LITELLM_MODEL"
         assert all(i.severity == "info" for i in llm_issues)
         assert all("LITELLM_MODEL" not in i.message for i in llm_issues)
-        assert any("主模型" in i.message for i in llm_issues)
+        assert any("primary model" in i.message for i in llm_issues)
 
     def test_codex_cli_without_litellm_model_does_not_emit_primary_model_hint(self):
         cfg = _make_config(
@@ -438,8 +438,8 @@ class TestValidateStructuredLLM:
 
         issues = cfg.validate_structured()
 
-        assert not any(i.field == "LITELLM_MODEL" and "主模型" in i.message for i in issues)
-        assert not any(i.severity == "error" and "AI 模型" in i.message for i in issues)
+        assert not any(i.field == "LITELLM_MODEL" and "primary model" in i.message for i in issues)
+        assert not any(i.severity == "error" and "AI model" in i.message for i in issues)
 
     def test_direct_env_provider_model_without_model_list_no_error(self):
         """Direct LiteLLM env providers should count as configured for runtime."""
@@ -461,7 +461,7 @@ class TestValidateStructuredLLM:
         matching_issues = [i for i in issues if i.severity == "error" and i.field == "LITELLM_MODEL"]
         assert matching_issues
         assert all("LITELLM_MODEL" not in i.message for i in matching_issues)
-        assert any("主模型" in i.message for i in matching_issues)
+        assert any("primary model" in i.message for i in matching_issues)
 
     def test_configured_agent_primary_model_missing_from_channels_is_error(self):
         cfg = _make_config(
@@ -513,12 +513,12 @@ class TestValidateStructuredNotification:
         cfg = _make_config(wechat_webhook_url=None)
         issues = cfg.validate_structured()
         warn = [i for i in issues if i.severity == "warning"]
-        assert any("通知渠道" in i.message for i in warn)
+        assert any("notification channel" in i.message for i in warn)
 
     def test_notification_configured_no_warning(self):
         cfg = _make_config(wechat_webhook_url="https://example.com/wh")
         issues = cfg.validate_structured()
-        assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert not any(i.severity == "warning" and "notification channel" in i.message for i in issues)
 
     def test_dingtalk_webhook_counts_as_notification_channel(self):
         cfg = _make_config(
@@ -527,7 +527,7 @@ class TestValidateStructuredNotification:
         )
         issues = cfg.validate_structured()
 
-        assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert not any(i.severity == "warning" and "notification channel" in i.message for i in issues)
 
     @pytest.mark.parametrize(
         ("kwargs", "missing_field"),
@@ -543,7 +543,7 @@ class TestValidateStructuredNotification:
         assert any(
             i.severity == "error"
             and i.field == missing_field
-            and "Telegram 通知配置不完整" in i.message
+            and "Telegram notification config is incomplete" in i.message
             for i in issues
         )
 
@@ -561,7 +561,7 @@ class TestValidateStructuredNotification:
         assert any(
             i.severity == "error"
             and i.field == missing_field
-            and "邮件通知配置不完整" in i.message
+            and "Email notification config is incomplete" in i.message
             for i in issues
         )
 
@@ -580,7 +580,7 @@ class TestValidateStructuredNotification:
         assert any(
             i.severity == "warning"
             and i.field == field
-            and "http:// 或 https://" in i.message
+            and "http:// or https://" in i.message
             for i in issues
         )
 
@@ -590,28 +590,28 @@ class TestValidateStructuredNotification:
             astrbot_url="https://astrbot.example/webhook",
         )
         issues = cfg.validate_structured()
-        assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert not any(i.severity == "warning" and "notification channel" in i.message for i in issues)
 
     def test_ntfy_url_without_topic_reports_error_and_does_not_count_as_channel(self):
         cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh")
         issues = cfg.validate_structured()
 
         assert any(i.severity == "error" and i.field == "NTFY_URL" for i in issues)
-        assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert any(i.severity == "warning" and "notification channel" in i.message for i in issues)
 
     def test_ntfy_encoded_blank_topic_reports_error_and_does_not_count_as_channel(self):
         cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh/%20")
         issues = cfg.validate_structured()
 
         assert any(i.severity == "error" and i.field == "NTFY_URL" for i in issues)
-        assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert any(i.severity == "warning" and "notification channel" in i.message for i in issues)
 
     def test_ntfy_topic_endpoint_counts_as_notification_channel(self):
         cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh/dsa-topic")
         issues = cfg.validate_structured()
 
         assert not any(i.field == "NTFY_URL" for i in issues)
-        assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert not any(i.severity == "warning" and "notification channel" in i.message for i in issues)
 
     def test_gotify_url_and_token_count_as_notification_channel(self):
         cfg = _make_config(
@@ -622,7 +622,7 @@ class TestValidateStructuredNotification:
         issues = cfg.validate_structured()
 
         assert not any(i.field == "GOTIFY_URL" for i in issues)
-        assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert not any(i.severity == "warning" and "notification channel" in i.message for i in issues)
 
     def test_gotify_blank_token_does_not_count_as_notification_channel(self):
         cfg = _make_config(
@@ -632,7 +632,7 @@ class TestValidateStructuredNotification:
         )
         issues = cfg.validate_structured()
 
-        assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert any(i.severity == "warning" and "notification channel" in i.message for i in issues)
         assert any(i.severity == "warning" and i.field == "GOTIFY_TOKEN" for i in issues)
 
     def test_gotify_message_endpoint_reports_error_and_does_not_count_as_channel(self):
@@ -644,7 +644,7 @@ class TestValidateStructuredNotification:
         issues = cfg.validate_structured()
 
         assert any(i.severity == "error" and i.field == "GOTIFY_URL" for i in issues)
-        assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
+        assert any(i.severity == "warning" and "notification channel" in i.message for i in issues)
 
     def test_feishu_app_credentials_without_webhook_warns_mode_mismatch(self):
         cfg = _make_config(
@@ -711,8 +711,8 @@ class TestValidateStructuredNotification:
         cfg = _make_config(searxng_public_instances_enabled=False)
         issues = cfg.validate_structured()
         info = [i for i in issues if i.severity == "info"]
-        assert any("搜索引擎" in i.message for i in info)
-        search_issue = next(i for i in info if "搜索引擎" in i.message)
+        assert any("search engine" in i.message for i in info)
+        search_issue = next(i for i in info if "search engine" in i.message)
         assert search_issue.field == "BOCHA_API_KEYS"
 
     def test_searxng_configured_no_search_info(self):
@@ -720,14 +720,14 @@ class TestValidateStructuredNotification:
         cfg = _make_config(searxng_base_urls=["https://searx.example.org"])
         issues = cfg.validate_structured()
         info = [i for i in issues if i.severity == "info"]
-        assert not any("搜索引擎" in i.message and "未配置" in i.message for i in info)
+        assert not any("search engine" in i.message and "No search engine capability configured" in i.message for i in info)
 
     def test_public_searxng_enabled_no_search_info(self):
         """Public SearXNG mode also counts as search capability."""
         cfg = _make_config(searxng_public_instances_enabled=True)
         issues = cfg.validate_structured()
         info = [i for i in issues if i.severity == "info"]
-        assert not any("搜索引擎" in i.message and "未配置" in i.message for i in info)
+        assert not any("search engine" in i.message and "No search engine capability configured" in i.message for i in info)
 
 
 # ---------------------------------------------------------------------------
@@ -905,7 +905,7 @@ class TestValidateBackwardCompat:
     def test_empty_llm_model_list_message_in_validate(self):
         cfg = _make_config(llm_model_list=[])
         messages = cfg.validate()
-        assert any("AI 模型" in m for m in messages)
+        assert any("AI model" in m for m in messages)
 
     def test_messages_match_validate_structured(self):
         """validate() strings must be the message field of each ConfigIssue."""

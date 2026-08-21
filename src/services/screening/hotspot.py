@@ -26,11 +26,11 @@ from src.services.screening.source_guard import call_with_timeout, parse_source_
 
 
 HOTSPOT_STAGES = (
-    "初次异动",
-    "确认扩散",
-    "加速主升",
-    "分歧放量",
-    "降温退潮",
+    "Initial move",
+    "Confirmed spread",
+    "Accelerating rally",
+    "Divergence on volume",
+    "Cooling off",
 )
 
 _HOTSPOT_CALL_TIMEOUT_SECONDS = 8.0
@@ -49,7 +49,7 @@ class HotspotSummary:
     cooling_score: float | None = None
     observations: int = 0
     state: str = ""
-    stage: str = "初次异动"
+    stage: str = "Initial move"
     sample_stock_count: int = 0
     leaders: list[str] = field(default_factory=list)
     leader_stocks: list["HotspotStock"] = field(default_factory=list)
@@ -172,18 +172,18 @@ def classify_hotspot_stage(
     obs = int(_safe_float(observations) or 0)
 
     if state_text in {"weakening", "cooling"} and (latest < 60 or trend <= -5):
-        return "降温退潮"
+        return "Cooling off"
     if cooling >= 8 and (latest < 60 or trend <= -5):
-        return "降温退潮"
+        return "Cooling off"
     if cooling >= 5:
-        return "分歧放量"
+        return "Divergence on volume"
     if latest >= 75 and trend >= 8 and persistence >= 50:
-        return "加速主升"
+        return "Accelerating rally"
     if state_text == "persistent_hot" or persistence >= 66.6667:
-        return "确认扩散"
+        return "Confirmed spread"
     if trend >= 5 and obs >= 2:
-        return "确认扩散"
-    return "初次异动"
+        return "Confirmed spread"
+    return "Initial move"
 
 
 def resolve_hotspot_topic(
@@ -279,17 +279,17 @@ def assign_stock_roles(scored_rows: list[dict[str, Any] | HotspotStock]) -> list
     for idx, stock in enumerate(stocks):
         change = stock.change_pct or 0.0
         if idx == 0 and stock.hot_stock_score >= 70:
-            role = "核心龙头"
+            role = "Core leader"
         elif idx <= 2 and stock.hot_stock_score >= max(68.0, top_score - 8.0) and change >= 5.0:
-            role = "核心龙头"
+            role = "Core leader"
         elif stock.hot_stock_score >= 62.0 and change >= 3.0:
-            role = "助攻"
+            role = "Supporting"
         elif stock.hot_stock_score >= 48.0 and change >= 0:
-            role = "补涨"
+            role = "Catch-up"
         elif stock.hot_stock_score >= 38.0:
-            role = "后排"
+            role = "Laggard tier"
         else:
-            role = "掉队"
+            role = "Fallen behind"
         stock.role = role
     return stocks
 
@@ -1042,7 +1042,7 @@ def _coerce_hotspot_summary(item: object) -> HotspotSummary | None:
         cooling_score=_safe_float(item.get("cooling_score")),
         observations=int(_safe_float(item.get("observations")) or 0),
         state=_safe_text(item.get("state")),
-        stage=_safe_text(item.get("stage")) or "初次异动",
+        stage=_safe_text(item.get("stage")) or "Initial move",
         sample_stock_count=int(_safe_float(item.get("sample_stock_count")) or 0),
         leaders=[_safe_text(value) for value in leaders if _safe_text(value)] if isinstance(leaders, list) else [],
         leader_stocks=[
@@ -1281,7 +1281,7 @@ def _leader_fallback_stocks(
         copied.source = "last_good_cache.leader_stocks"
         copied.source_confidence = _stale_confidence(0.65, stale_age_hours)
         copied.fallback_used = True
-        copied.role = copied.role or "核心龙头"
+        copied.role = copied.role or "Core leader"
         stocks.append(copied)
     if stocks:
         return stocks
@@ -1293,7 +1293,7 @@ def _leader_fallback_stocks(
         stocks.append(HotspotStock(
             code="",
             name=text,
-            role="核心龙头" if idx == 0 else "助攻",
+            role="Core leader" if idx == 0 else "Supporting",
             hot_stock_score=0.0,
             source="last_good_cache.leaders",
             source_confidence=_stale_confidence(0.45, stale_age_hours),
@@ -1303,7 +1303,7 @@ def _leader_fallback_stocks(
 
 
 def _set_summary_leaders(summary: HotspotSummary, stocks: list[HotspotStock]) -> None:
-    selected = [stock for stock in stocks if stock.role == "核心龙头"][:3]
+    selected = [stock for stock in stocks if stock.role == "Core leader"][:3]
     if not selected:
         selected = stocks[:3]
     summary.leader_stocks = [_copy_hotspot_stock(stock) for stock in selected]
@@ -1411,15 +1411,15 @@ def _build_summary_route_item(
 ) -> HotspotRouteItem:
     leaders = summary.leaders or [stock.name for stock in stocks[:3] if stock.name]
     parts = [
-        f"{summary.topic or summary.name}热度 {summary.heat_score:.1f}",
-        f"阶段 {summary.stage}" if summary.stage else "",
-        "核心股 " + "、".join(leaders[:3]) if leaders else "",
+        f"{summary.topic or summary.name} heat {summary.heat_score:.1f}",
+        f"stage {summary.stage}" if summary.stage else "",
+        "core stocks " + ", ".join(leaders[:3]) if leaders else "",
     ]
     source = summary.provider_used or summary.source or "screening_hotspot"
     return HotspotRouteItem(
         date=_event_day(datetime.now(timezone.utc).isoformat()),
-        title="当前发酵",
-        description=_compact_text("，".join(_dedupe_texts(parts)), max_description_chars),
+        title="Currently developing",
+        description=_compact_text(", ".join(_dedupe_texts(parts)), max_description_chars),
         source=source,
         event_type="summary",
         impact_score=round(_safe_float(summary.heat_score) or 0.0, 4),
@@ -1431,7 +1431,7 @@ def _route_title(event: TimelineEvent) -> str:
     event_type = _safe_text(event.event_type).lower()
     if event_type in {"announcement", "notice", "order", "policy", "fund_flow"}:
         return event.title[:60]
-    return "消息催化"
+    return "News catalyst"
 
 
 def _event_day(value: str) -> str:

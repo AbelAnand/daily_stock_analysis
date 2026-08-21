@@ -357,10 +357,10 @@ class YfinanceFundamentalAdapter:
         belong_boards: List[Dict[str, Any]] = []
         sector_name = str(info.get("sector") or info.get("sectorDisp") or "").strip()
         if sector_name:
-            belong_boards.append({"name": sector_name, "type": "行业"})
+            belong_boards.append({"name": sector_name, "type": "industry"})
         industry_name = str(info.get("industry") or info.get("industryDisp") or "").strip()
         if industry_name and industry_name != sector_name:
-            belong_boards.append({"name": industry_name, "type": "概念"})
+            belong_boards.append({"name": industry_name, "type": "concept"})
         if belong_boards:
             result["belong_boards"] = belong_boards
             result["source_chain"].append("belong_boards:yfinance.info")

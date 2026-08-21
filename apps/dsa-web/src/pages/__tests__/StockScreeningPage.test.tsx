@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScreeningHotspotDetail } from '../../api/screening';
+import { UiLanguageProvider } from '../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../utils/uiLanguage';
 import StockScreeningPage from '../StockScreeningPage';
 
 const {
@@ -106,6 +108,7 @@ function createDeferred<T>() {
 
 describe('StockScreeningPage', () => {
   beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
     enableScreening.mockReset();
     getScreeningStatus.mockReset();
     getHotspotDetail.mockReset();
@@ -146,10 +149,30 @@ describe('StockScreeningPage', () => {
     window.sessionStorage.clear();
   });
 
+  it('renders in English by default when no language preference is stored', async () => {
+    window.localStorage.removeItem(UI_LANGUAGE_STORAGE_KEY);
+    getScreeningStatus.mockResolvedValueOnce({ enabled: true, available: true });
+    getHotspots.mockResolvedValueOnce({
+      enabled: true,
+      provider: 'akshare',
+      hotspots: [{ topic: 'AI Compute', name: 'AI Compute', heatScore: 88, stage: 'accelerating', leaders: ['Leader Co'] }],
+      hotspotCount: 1,
+    });
+
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
+
+    expect(await screen.findByRole('heading', { name: 'Screening' })).toBeInTheDocument();
+    expect(await screen.findByText('Screening enabled')).toBeInTheDocument();
+    expect(screen.getByText('Hot themes')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Expand hot themes/ }));
+    expect(await screen.findByText('Leading')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Refresh hot themes/ })).toBeInTheDocument();
+  });
+
   it('keeps implementation attribution and repeated guidance off the operation page', async () => {
     getScreeningStatus.mockResolvedValueOnce({ enabled: true, available: true });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     expect(screen.queryByText(/AlphaSift/)).not.toBeInTheDocument();
@@ -170,7 +193,7 @@ describe('StockScreeningPage', () => {
       });
     enableScreening.mockRejectedValueOnce(new Error('选股功能不可用，请检查后端日志'));
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect((await screen.findAllByText('选股未开启')).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /运行选股/ })).toBeDisabled();
@@ -219,7 +242,7 @@ describe('StockScreeningPage', () => {
         hotspotCount: 1,
       });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     await waitFor(() => expect(getHotspots).toHaveBeenCalledWith({ provider: 'akshare', top: 12, refresh: false }));
@@ -291,7 +314,7 @@ describe('StockScreeningPage', () => {
         stockCount: 0,
       });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     await screen.findByText('选股已开启');
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -394,7 +417,7 @@ describe('StockScreeningPage', () => {
       stockCount: 1,
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByRole('heading', { name: '选股' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -433,7 +456,7 @@ describe('StockScreeningPage', () => {
     });
     getHotspotDetail.mockReturnValueOnce(detailRequest.promise);
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     await waitFor(() => expect(getHotspots).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -473,7 +496,7 @@ describe('StockScreeningPage', () => {
       message: 'No cached Screening hotspot snapshot. Click refresh to fetch live hotspots.',
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     await waitFor(() => expect(getHotspots).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('暂无热点缓存')).not.toBeInTheDocument();
@@ -497,7 +520,7 @@ describe('StockScreeningPage', () => {
       message: '热点源连接中断，暂无可用缓存。',
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     await waitFor(() => expect(getHotspots).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -529,7 +552,7 @@ describe('StockScreeningPage', () => {
       stockCount: 0,
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     await waitFor(() => expect(getHotspots).toHaveBeenCalledWith({ provider: 'akshare', top: 12, refresh: false }));
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -566,7 +589,7 @@ describe('StockScreeningPage', () => {
       },
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     await waitFor(() => expect(getHotspots).toHaveBeenCalledWith({ provider: 'akshare', top: 12, refresh: false }));
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -604,7 +627,7 @@ describe('StockScreeningPage', () => {
       hotspotCount: 2,
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     await waitFor(() => expect(getHotspots).toHaveBeenCalledWith({ provider: 'akshare', top: 12, refresh: false }));
@@ -668,7 +691,7 @@ describe('StockScreeningPage', () => {
         return Promise.reject(new Error(`unexpected topic: ${topic}`));
       });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -742,7 +765,7 @@ describe('StockScreeningPage', () => {
       return Promise.reject(new Error(`unexpected topic: ${topic}`));
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -850,7 +873,7 @@ describe('StockScreeningPage', () => {
         stockCount: 1,
       });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -898,7 +921,7 @@ describe('StockScreeningPage', () => {
       })
       .mockRejectedValueOnce(new Error('manual refresh failed'));
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /展开热点题材/ }));
@@ -925,7 +948,7 @@ describe('StockScreeningPage', () => {
       candidateCount: 0,
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('策略'), {
@@ -964,7 +987,7 @@ describe('StockScreeningPage', () => {
       candidateCount: 0,
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
 
@@ -1023,7 +1046,7 @@ describe('StockScreeningPage', () => {
       candidateCount: 1,
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /运行选股/ }));
@@ -1071,7 +1094,7 @@ describe('StockScreeningPage', () => {
       candidateCount: 1,
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /运行选股/ }));
@@ -1143,7 +1166,7 @@ describe('StockScreeningPage', () => {
         },
       });
 
-    const firstRender = render(<StockScreeningPage />);
+    const firstRender = render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /运行选股/ }));
@@ -1152,7 +1175,7 @@ describe('StockScreeningPage', () => {
     expect(window.sessionStorage.getItem('dsa.screening.activeScreenTask.v1')).toContain('screen-task-1');
 
     firstRender.unmount();
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('恢复后的候选')).toBeInTheDocument();
     expect(screen.getByText('选股完成')).toBeInTheDocument();
@@ -1174,7 +1197,7 @@ describe('StockScreeningPage', () => {
       code: 'ECONNABORTED',
     }));
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     await waitFor(() => expect(getScreenTask).toHaveBeenCalledTimes(1));
     expect(screen.getByText('选股运行中')).toBeInTheDocument();
@@ -1215,7 +1238,7 @@ describe('StockScreeningPage', () => {
       warnings: ['LLM ranking failed, falling back to screen_score: Missing gemini_api_key'],
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /运行选股/ }));
@@ -1253,7 +1276,7 @@ describe('StockScreeningPage', () => {
       sourceErrors: ['tushare: tushare trade_cal returned no open trading days'],
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /运行选股/ }));
@@ -1287,7 +1310,7 @@ describe('StockScreeningPage', () => {
       ],
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /运行选股/ }));
@@ -1333,7 +1356,7 @@ describe('StockScreeningPage', () => {
       },
     });
 
-    render(<StockScreeningPage />);
+    render(<UiLanguageProvider><StockScreeningPage /></UiLanguageProvider>);
 
     expect(await screen.findByText('选股已开启')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /运行选股/ }));

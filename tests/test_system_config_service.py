@@ -1287,7 +1287,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertEqual(checks["llm_primary"]["status"], "configured")
         self.assertEqual(checks["stock_list"]["status"], "configured")
         self.assertEqual(checks["llm_agent"]["status"], "needs_action")
-        self.assertIn("local CLI 主生成方式不会被自动继承", checks["llm_agent"]["message"])
+        self.assertIn("the local CLI primary generation backend is not inherited automatically", checks["llm_agent"]["message"])
         self.assertEqual(status["required_missing_keys"], ["llm_agent"])
 
     def test_get_setup_status_codex_cli_missing_reports_backend_path(self) -> None:
@@ -1303,8 +1303,8 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         checks = {check["key"]: check for check in status["checks"]}
         self.assertEqual(checks["llm_primary"]["status"], "needs_action")
-        self.assertIn("后端进程当前 PATH", checks["llm_primary"]["message"])
-        self.assertIn("Codex CLI 交互窗口", checks["llm_primary"]["next_step"])
+        self.assertIn("was not found in the DSA backend process PATH", checks["llm_primary"]["message"])
+        self.assertIn("Codex CLI interactive window", checks["llm_primary"]["next_step"])
         self.assertNotIn("请先安装并登录", checks["llm_primary"]["next_step"])
 
     def test_get_setup_status_codex_primary_agent_model_explains_litellm_split(self) -> None:
@@ -1322,8 +1322,8 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         checks = {check["key"]: check for check in status["checks"]}
         self.assertEqual(checks["llm_agent"]["status"], "configured")
-        self.assertIn("普通分析使用 Codex CLI", checks["llm_agent"]["message"])
-        self.assertIn("Agent 工具调用仍使用 LiteLLM 主模型", checks["llm_agent"]["message"])
+        self.assertIn("Regular analysis uses Codex CLI", checks["llm_agent"]["message"])
+        self.assertIn("Agent tool calling still uses the LiteLLM primary model", checks["llm_agent"]["message"])
 
     def test_get_setup_status_codex_primary_agent_inherited_model_explains_litellm_split(self) -> None:
         self._rewrite_env(
@@ -1341,7 +1341,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         checks = {check["key"]: check for check in status["checks"]}
         self.assertEqual(checks["llm_agent"]["status"], "configured")
         self.assertIn(
-            "普通分析使用 Codex CLI；Agent 工具调用仍使用 LiteLLM 主模型: openai/gpt-5.5",
+            "Regular analysis uses Codex CLI; Agent tool calling still uses the LiteLLM primary model: openai/gpt-5.5",
             checks["llm_agent"]["message"],
         )
 
@@ -1368,7 +1368,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertIn("Hermes", checks["llm_agent"]["message"])
         self.assertIn("llm_agent", status["required_missing_keys"])
         self.assertNotIn(
-            "Agent 工具调用仍使用 LiteLLM 主模型",
+            "Agent tool calling still uses the LiteLLM primary model",
             checks["llm_agent"]["message"],
         )
 
@@ -1385,7 +1385,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         checks = {check["key"]: check for check in status["checks"]}
         self.assertEqual(checks["llm_agent"]["status"], "needs_action")
-        self.assertIn("暂不支持 codex_cli", checks["llm_agent"]["message"])
+        self.assertIn("does not support the codex_cli text-only backend yet", checks["llm_agent"]["message"])
 
     def test_get_setup_status_rejects_agent_claude_and_opencode_tool_backends(self) -> None:
         for backend in ("claude_code_cli", "opencode_cli"):
@@ -1401,7 +1401,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
                 checks = {check["key"]: check for check in status["checks"]}
                 self.assertEqual(checks["llm_agent"]["status"], "needs_action")
-                self.assertIn(f"暂不支持 {backend}", checks["llm_agent"]["message"])
+                self.assertIn(f"does not support the {backend} text-only backend yet", checks["llm_agent"]["message"])
 
     def test_get_setup_status_accepts_opencode_without_model_override(self) -> None:
         self._rewrite_env(
@@ -1431,8 +1431,8 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         checks = {check["key"]: check for check in status["checks"]}
         self.assertEqual(checks["llm_agent"]["status"], "needs_action")
-        self.assertIn("未检测到可用 LiteLLM 模型配置", checks["llm_agent"]["message"])
-        self.assertNotIn("需要 LiteLLM backend", checks["llm_agent"]["message"])
+        self.assertIn("no usable LiteLLM model configuration was detected", checks["llm_agent"]["message"])
+        self.assertNotIn("requires a LiteLLM backend", checks["llm_agent"]["message"])
 
     def test_get_setup_status_accepts_anspire_one_key_llm(self) -> None:
         self._rewrite_env(
@@ -2495,7 +2495,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         context_profile_schema = items["AGENT_CONTEXT_COMPRESSION_PROFILE"]["schema"]
         self.assertEqual(
             [option["label"] for option in context_profile_schema["options"]],
-            ["成本优先", "均衡推荐", "长上下文原文优先"],
+            ["Cost first", "Balanced (recommended)", "Long context, raw text first"],
         )
         self.assertEqual(
             context_profile_schema["validation"]["enum"],
@@ -3085,7 +3085,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             )
 
         self.assertTrue(payload["success"])
-        self.assertIn("部分成功", payload["message"])
+        self.assertIn("partially succeeded", payload["message"])
         self.assertIn("1/2", payload["message"])
         self.assertEqual(len(payload["attempts"]), 2)
         self.assertFalse(payload["attempts"][0]["success"])
@@ -3122,7 +3122,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error_code"], "send_failed")
         self.assertTrue(payload["retryable"])
-        self.assertIn("失败", payload["message"])
+        self.assertIn("failed", payload["message"])
         self.assertIn("0/2", payload["message"])
         self.assertEqual(len(payload["attempts"]), 2)
         self.assertTrue(all(attempt["retryable"] for attempt in payload["attempts"]))
@@ -3487,11 +3487,11 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         self.assertTrue(response["success"])
         joined = " | ".join(response["warnings"])
-        self.assertIn("Hermes Phase 3 不支持", joined)
+        self.assertIn("Cleared settings not supported by Hermes Phase 3", joined)
         self.assertIn("LLM_HERMES_API_KEYS", joined)
         self.assertIn("LLM_HERMES_EXTRA_HEADERS", joined)
         self.assertIn("LLM_HERMES_API_KEY", joined)
-        self.assertIn(".env 备份", joined)
+        self.assertIn(".env backup", joined)
         current_map = self.manager.read_config_map()
         self.assertEqual(current_map["LLM_HERMES_API_KEYS"], "")
         self.assertEqual(current_map["LLM_HERMES_EXTRA_HEADERS"], "")
@@ -4281,7 +4281,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         run_warning = next(
             warning
             for warning in response["warnings"]
-            if "RUN_IMMEDIATELY 已写入 .env" in warning
+            if "RUN_IMMEDIATELY written to .env" in warning
         )
         schedule_warning = next(
             warning
@@ -4294,14 +4294,14 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             if "SCHEDULE_RUN_IMMEDIATELY" in warning
         )
 
-        self.assertIn("非 schedule 模式", run_warning)
-        self.assertNotIn("以 schedule 模式", run_warning)
+        self.assertIn("non-schedule mode", run_warning)
+        self.assertNotIn("in schedule mode", run_warning)
         self.assertIn("runtime scheduler", schedule_warning)
         self.assertIn("CLI schedule", schedule_warning)
         self.assertIn("SCHEDULE_RUN_IMMEDIATELY", schedule_run_warning)
-        self.assertIn("不会因为本次保存启动、停止或重建 scheduler", schedule_run_warning)
-        self.assertIn("以 schedule 模式重新启动后生效", schedule_run_warning)
-        self.assertNotIn("它属于启动期单次运行配置", schedule_run_warning)
+        self.assertIn("will not start, stop, or rebuild the scheduler because of this save", schedule_run_warning)
+        self.assertIn("restart the process in schedule mode for them to take effect", schedule_run_warning)
+        self.assertNotIn("one-shot run setting", schedule_run_warning)
 
     def test_update_appends_schedule_time_runtime_rebind_warning(self) -> None:
         response = self.service.update(
@@ -4314,14 +4314,14 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         schedule_time_warning = next(
             warning
             for warning in response["warnings"]
-            if "SCHEDULE_TIME=09:30 已写入 .env" in warning
+            if "SCHEDULE_TIME=09:30 written to .env" in warning
         )
 
-        self.assertIn("已经以 schedule 模式运行", schedule_time_warning)
-        self.assertIn("自动重建 daily job", schedule_time_warning)
-        self.assertIn("不会启动 scheduler", schedule_time_warning)
-        self.assertNotIn("重启当前进程", schedule_time_warning)
-        self.assertNotIn("不会因为本次保存启动、停止或重建 scheduler", schedule_time_warning)
+        self.assertIn("already running in schedule mode", schedule_time_warning)
+        self.assertIn("rebuilds the daily job on its next check", schedule_time_warning)
+        self.assertIn("this save does not start the scheduler", schedule_time_warning)
+        self.assertNotIn("restart the process,", schedule_time_warning)
+        self.assertNotIn("will not start, stop, or rebuild the scheduler because of this save", schedule_time_warning)
 
     def test_update_schedule_time_blank_warning_reports_effective_default(self) -> None:
         response = self.service.update(
@@ -4332,7 +4332,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         self.assertTrue(response["success"])
         self.assertTrue(
-            any("SCHEDULE_TIME=18:00 已写入 .env" in warning for warning in response["warnings"]),
+            any("SCHEDULE_TIME=18:00 written to .env" in warning for warning in response["warnings"]),
             response["warnings"],
         )
 
@@ -4353,9 +4353,9 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             if "WEBUI_HOST" in warning and "WEBUI_PORT" in warning
         )
 
-        self.assertIn("启动期监听配置", bind_warning)
-        self.assertIn("不会因为本次保存重新绑定监听地址或端口", bind_warning)
-        self.assertIn("重启当前进程、Docker 容器或服务管理器后生效", bind_warning)
+        self.assertIn("startup-time listen settings", bind_warning)
+        self.assertIn("will not re-bind its listen address or port because of this save", bind_warning)
+        self.assertIn("restart the process, Docker container, or service manager for them to take effect", bind_warning)
 
     def test_update_warns_when_runtime_model_references_are_cleared(self) -> None:
         self._rewrite_env(
@@ -4387,10 +4387,10 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         warning = next(
             warning
             for warning in response["warnings"]
-            if "已同步清理失效的运行时模型引用" in warning
+            if "Stale runtime model references were cleaned up along with this save" in warning
         )
-        self.assertIn("主模型 / Agent 主模型 / Vision 模型 / 备选模型中的失效项", warning)
-        self.assertIn("桌面端导出备份", warning)
+        self.assertIn("primary model / Agent primary model / Vision model / stale entries in fallback models", warning)
+        self.assertIn("desktop export backup", warning)
 
     def test_update_market_review_region_does_not_trigger_runtime_model_cleanup(self) -> None:
         litellm_config_path = Path(self.temp_dir.name) / "litellm_config.yaml"
@@ -4439,7 +4439,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertEqual(current_map["OPENAI_MODEL"], "gpt-4.1")
         self.assertEqual(current_map["ANTHROPIC_MODEL"], "claude-sonnet-4-6")
         self.assertFalse(
-            any("已同步清理失效的运行时模型引用" in warning for warning in response["warnings"]),
+            any("Stale runtime model references were cleaned up along with this save" in warning for warning in response["warnings"]),
             response["warnings"],
         )
 

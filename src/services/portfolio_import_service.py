@@ -37,7 +37,7 @@ DEFAULT_PARSER_SPECS: Tuple[CsvParserSpec, ...] = (
     CsvParserSpec(
         broker="huatai",
         aliases=(),
-        display_name="华泰",
+        display_name="Huatai",
         column_hints={
             "trade_date": ("成交日期", "成交时间", "发生日期", "日期"),
             "symbol": ("证券代码", "股票代码", "代码"),
@@ -50,7 +50,7 @@ DEFAULT_PARSER_SPECS: Tuple[CsvParserSpec, ...] = (
     CsvParserSpec(
         broker="citic",
         aliases=("zhongxin",),
-        display_name="中信",
+        display_name="CITIC",
         column_hints={
             "trade_date": ("发生日期", "成交日期", "日期"),
             "symbol": ("证券代码", "股票代码", "代码"),
@@ -63,7 +63,7 @@ DEFAULT_PARSER_SPECS: Tuple[CsvParserSpec, ...] = (
     CsvParserSpec(
         broker="cmb",
         aliases=("zhaoshang", "cmbchina"),
-        display_name="招商",
+        display_name="CMS",
         column_hints={
             "trade_date": ("日期", "成交日期", "发生日期"),
             "symbol": ("证券代码", "股票代码", "代码"),

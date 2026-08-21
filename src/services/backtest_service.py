@@ -240,7 +240,7 @@ class BacktestService:
 
             except Exception as exc:
                 errors += 1
-                logger.error(f"回测失败: {analysis.code}#{analysis.id}: {exc}")
+                logger.error(f"Backtest failed: {analysis.code}#{analysis.id}: {exc}")
                 results_to_save.append(
                     BacktestResult(
                         analysis_history_id=analysis.id,
@@ -442,7 +442,7 @@ class BacktestService:
 
         identity = resolve_daily_stock_identity(str(code).strip())
         if identity is None:
-            raise ValueError(f"非法股票代码格式: {code}")
+            raise ValueError(f"Invalid stock code format: {code}")
         return identity.normalized_code
 
     @staticmethod
@@ -492,19 +492,19 @@ class BacktestService:
         if processed == 0:
             if has_matching_analysis:
                 diagnostics["empty_reason"] = "no_new_results"
-                message = "历史分析记录已存在，当前筛选条件下没有新的回测任务可执行。"
+                message = "Historical analysis records already exist; no new backtest tasks match the current filters."
             else:
                 diagnostics["empty_reason"] = "no_matching_analysis"
-                message = "未找到符合条件的历史分析记录，请检查股票代码、分析日期范围、最小天龄或是否已生成历史分析。"
+                message = "No matching historical analysis records found; check the stock code, analysis date range, minimum age, or whether historical analyses have been generated."
         elif completed == 0 and insufficient > 0 and errors == 0:
             diagnostics["empty_reason"] = "insufficient_daily_data"
-            message = "已找到历史分析记录，但可用日线行情不足，无法完成回测。"
+            message = "Historical analysis records were found, but there is not enough daily price data to complete the backtest."
         elif completed == 0 and errors > 0:
             diagnostics["empty_reason"] = "evaluation_error"
-            message = "已找到历史分析记录，但回测计算失败，请查看后端日志或放宽筛选条件。"
+            message = "Historical analysis records were found, but the backtest computation failed; check backend logs or relax the filters."
         elif saved == 0 and completed == 0:
             diagnostics["empty_reason"] = "no_new_results"
-            message = "没有写入新的回测结果；如需覆盖已有结果，请启用强制重跑。"
+            message = "No new backtest results were written; enable force rerun to overwrite existing results."
 
         if message:
             diagnostics["message"] = message
@@ -841,7 +841,7 @@ class BacktestService:
             return parsed
         if getattr(analysis, "created_at", None):
             return analysis.created_at.date()
-        logger.warning(f"无法确定分析日期，跳过记录: {analysis.code}#{getattr(analysis, 'id', '?')}")
+        logger.warning(f"Unable to determine analysis date, skipping record: {analysis.code}#{getattr(analysis, 'id', '?')}")
         return None
 
     def _try_fill_daily_data(self, *, code: str, analysis_date: date, eval_window_days: int) -> None:
@@ -865,7 +865,7 @@ class BacktestService:
                 return
             self.db.save_daily_data(df, code=refill_code, data_source=source)
         except Exception as exc:
-            logger.warning(f"补全日线数据失败({refill_code}): {exc}")
+            logger.warning(f"Failed to backfill daily price data ({refill_code}): {exc}")
 
     def _recompute_summaries(self, *, touched_codes: List[str], eval_window_days: int, engine_version: str) -> None:
         with self.db.get_session() as session:
@@ -933,7 +933,7 @@ class BacktestService:
                 engine_version=engine_version,
             )
         except Exception as exc:
-            logger.warning(f"读取回测总体汇总失败: {exc}")
+            logger.warning(f"Failed to read overall backtest summary: {exc}")
             return None
         if summary is None:
             return None
@@ -943,19 +943,19 @@ class BacktestService:
     def _log_overall_metrics(metrics: Dict[str, Any]) -> None:
         """在 --backtest CLI 输出中展示总体指标：严格准确率、Brier、可靠性表、按方向拆分。"""
         lines = [
-            "回测总体表现 (窗口={}d, engine={}, scoring={}):".format(
+            "Overall backtest performance (window={}d, engine={}, scoring={}):".format(
                 metrics.get("eval_window_days"),
                 metrics.get("engine_version"),
                 metrics.get("scoring_scheme") or SCORING_SCHEME,
             ),
-            "  严格准确率(neutral计入分母): {} | win={} loss={} neutral={} scored={}".format(
+            "  Strict accuracy (neutral counted in denominator): {} | win={} loss={} neutral={} scored={}".format(
                 BacktestService._fmt_pct(metrics.get("strict_accuracy_pct")),
                 metrics.get("win_count"),
                 metrics.get("loss_count"),
                 metrics.get("neutral_count"),
                 metrics.get("scored_count"),
             ),
-            "  传统胜率 win/(win+loss): {} | 方向准确率(legacy): {}".format(
+            "  Classic win rate win/(win+loss): {} | direction accuracy (legacy): {}".format(
                 BacktestService._fmt_pct(metrics.get("win_rate_pct")),
                 BacktestService._fmt_pct(metrics.get("direction_accuracy_pct")),
             ),
@@ -964,7 +964,7 @@ class BacktestService:
         calibration = metrics.get("calibration")
         if isinstance(calibration, dict):
             lines.append(
-                "  Brier分数: {} (样本={})".format(
+                "  Brier score: {} (samples={})".format(
                     calibration.get("brier_score") if calibration.get("brier_score") is not None else "N/A",
                     calibration.get("sample_count"),
                 )
@@ -972,7 +972,7 @@ class BacktestService:
             table = calibration.get("reliability_table")
             if isinstance(table, list) and table:
                 cells = [
-                    "p[{},{}): 预测{} 实际{} n={}".format(
+                    "p[{},{}): predicted {} actual {} n={}".format(
                         bucket.get("p_low"),
                         bucket.get("p_high"),
                         bucket.get("avg_predicted"),
@@ -981,15 +981,15 @@ class BacktestService:
                     )
                     for bucket in table
                 ]
-                lines.append("  可靠性表: " + " | ".join(cells))
+                lines.append("  Reliability table: " + " | ".join(cells))
 
         direction_breakdown = metrics.get("direction_breakdown")
         if isinstance(direction_breakdown, dict) and direction_breakdown:
             label_map = {
-                "up": "买入(up)",
-                "not_down": "持有(not_down)",
-                "flat": "观望(flat)",
-                "down": "卖出(down)",
+                "up": "buy (up)",
+                "not_down": "hold (not_down)",
+                "flat": "wait (flat)",
+                "down": "sell (down)",
             }
             cells = []
             for direction in ("up", "not_down", "flat", "down"):
@@ -997,7 +997,7 @@ class BacktestService:
                 if not isinstance(bucket, dict):
                     continue
                 cells.append(
-                    "{}: 严格{} 胜率{} n={}".format(
+                    "{}: strict {} win rate {} n={}".format(
                         label_map.get(direction, direction),
                         BacktestService._fmt_pct(bucket.get("strict_accuracy_pct")),
                         BacktestService._fmt_pct(bucket.get("win_rate_pct")),
@@ -1008,7 +1008,7 @@ class BacktestService:
                 if direction in label_map or not isinstance(bucket, dict):
                     continue
                 cells.append(
-                    "{}: 严格{} 胜率{} n={}".format(
+                    "{}: strict {} win rate {} n={}".format(
                         direction,
                         BacktestService._fmt_pct(bucket.get("strict_accuracy_pct")),
                         BacktestService._fmt_pct(bucket.get("win_rate_pct")),
@@ -1016,7 +1016,7 @@ class BacktestService:
                     )
                 )
             if cells:
-                lines.append("  按建议方向: " + " | ".join(cells))
+                lines.append("  By recommended direction: " + " | ".join(cells))
 
         logger.info("\n".join(lines))
 

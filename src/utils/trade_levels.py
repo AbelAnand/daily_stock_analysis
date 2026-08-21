@@ -148,12 +148,12 @@ def compute_trade_levels(
 
     entry = _clean(current_price)
     if entry is None:
-        return TradeLevels(notes=["现价缺失，无法计算价位"])
+        return TradeLevels(notes=["Current price missing; cannot compute trade levels"])
 
     if direction != "long":
         return TradeLevels(
             entry=entry,
-            notes=[f"暂不支持 direction={direction}，仅支持 long"],
+            notes=[f"direction={direction} is not supported yet; only long is supported"],
         )
 
     inputs = _extract_inputs(data)
@@ -162,16 +162,16 @@ def compute_trade_levels(
     swing_high = inputs["swing_high"]
 
     if atr is None and swing_low is None:
-        return TradeLevels(entry=entry, notes=["缺少 ATR 与结构低点，无法计算止损"])
+        return TradeLevels(entry=entry, notes=["Missing ATR and structural swing low; cannot compute stop"])
 
     # --- 止损：结构低点与 ATR 止损取较高者（更紧的一档，控制单笔风险）---
     stop_candidates: List[float] = []
     if swing_low is not None and swing_low < entry:
         stop_candidates.append(swing_low * (1 - SWING_STOP_BUFFER))
-        notes.append(f"结构止损参考近期摆动低点 {swing_low:.2f}")
+        notes.append(f"Structural stop references recent swing low {swing_low:.2f}")
     if atr is not None:
         stop_candidates.append(entry - atr_stop_mult * atr)
-        notes.append(f"ATR止损 = entry - {atr_stop_mult}*ATR({atr:.2f})")
+        notes.append(f"ATR stop = entry - {atr_stop_mult}*ATR({atr:.2f})")
 
     stop_candidates = [s for s in stop_candidates if 0 < s < entry]
     if not stop_candidates:
@@ -179,7 +179,7 @@ def compute_trade_levels(
             entry=entry,
             atr=atr,
             quality="invalid",
-            notes=notes + ["无法得到低于入场价的有效止损"],
+            notes=notes + ["No valid stop below the entry price could be derived"],
         )
     stop = max(stop_candidates)
     risk = entry - stop
@@ -193,7 +193,7 @@ def compute_trade_levels(
         target_candidates.append(entry + min_rr * risk)
     if swing_high is not None and swing_high > entry:
         target_candidates.append(swing_high)
-        notes.append(f"目标受近期压力位 {swing_high:.2f} 约束")
+        notes.append(f"Target capped by recent resistance {swing_high:.2f}")
 
     target = min(target_candidates)
     if target <= entry:
@@ -202,7 +202,7 @@ def compute_trade_levels(
             stop=round(stop, 4),
             atr=atr,
             quality="invalid",
-            notes=notes + ["目标价不高于入场价"],
+            notes=notes + ["Target price is not above the entry price"],
         )
 
     r_multiple = (target - entry) / risk if risk > 0 else None
@@ -215,7 +215,7 @@ def compute_trade_levels(
         quality = "acceptable"
     else:
         quality = "poor_risk_reward"
-        notes.append(f"盈亏比 {r_multiple:.2f} < 1.5，压力位过近或止损过宽")
+        notes.append(f"Risk/reward {r_multiple:.2f} < 1.5; resistance too close or stop too wide")
 
     return TradeLevels(
         entry=round(entry, 4),

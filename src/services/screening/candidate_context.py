@@ -15,29 +15,29 @@ import pandas as pd
 import requests
 
 _NEGATIVE_EVENT_KEYWORDS = {
-    "减持": ("减持", "拟减持", "被动减持"),
-    "监管": ("处罚", "立案", "监管函", "问询函", "警示函", "调查"),
-    "业绩压力": ("预亏", "亏损", "业绩下滑", "业绩减少", "净利润下降"),
-    "财务风险": ("债务", "逾期", "违约", "商誉减值", "资产减值"),
-    "退市风险": ("退市", "ST", "*ST", "终止上市"),
-    "诉讼风险": ("诉讼", "仲裁", "冻结", "质押"),
+    "share_reduction": ("减持", "拟减持", "被动减持"),
+    "regulatory": ("处罚", "立案", "监管函", "问询函", "警示函", "调查"),
+    "earnings_pressure": ("预亏", "亏损", "业绩下滑", "业绩减少", "净利润下降"),
+    "financial_risk": ("债务", "逾期", "违约", "商誉减值", "资产减值"),
+    "delisting_risk": ("退市", "ST", "*ST", "终止上市"),
+    "litigation_risk": ("诉讼", "仲裁", "冻结", "质押"),
 }
 _POSITIVE_EVENT_KEYWORDS = {
-    "回购增持": ("回购", "增持"),
-    "订单经营": ("中标", "合同", "订单", "定点", "合作"),
-    "业绩改善": ("预增", "扭亏", "增长", "净利润增长"),
-    "股东回报": ("分红", "派息"),
-    "激励": ("股权激励", "员工持股"),
+    "buyback_or_insider_buying": ("回购", "增持"),
+    "orders_and_contracts": ("中标", "合同", "订单", "定点", "合作"),
+    "earnings_improvement": ("预增", "扭亏", "增长", "净利润增长"),
+    "shareholder_return": ("分红", "派息"),
+    "incentive": ("股权激励", "员工持股"),
 }
 _ANNOUNCEMENT_CATEGORY_KEYWORDS = {
-    "业绩": ("业绩", "利润", "营收", "预增", "预亏", "扭亏", "年报", "季报"),
-    "回购增持": ("回购", "增持"),
-    "减持": ("减持", "被动减持"),
-    "监管问询": ("监管函", "问询函", "警示函", "立案", "调查", "处罚"),
-    "重大合同": ("中标", "合同", "订单", "定点", "合作协议"),
-    "分红融资": ("分红", "派息", "配股", "定增", "可转债", "融资"),
-    "诉讼担保": ("诉讼", "仲裁", "担保", "冻结", "质押"),
-    "股权激励": ("股权激励", "员工持股"),
+    "earnings": ("业绩", "利润", "营收", "预增", "预亏", "扭亏", "年报", "季报"),
+    "buyback_or_insider_buying": ("回购", "增持"),
+    "share_reduction": ("减持", "被动减持"),
+    "regulatory_inquiry": ("监管函", "问询函", "警示函", "立案", "调查", "处罚"),
+    "major_contract": ("中标", "合同", "订单", "定点", "合作协议"),
+    "dividend_or_financing": ("分红", "派息", "配股", "定增", "可转债", "融资"),
+    "litigation_or_guarantee": ("诉讼", "仲裁", "担保", "冻结", "质押"),
+    "equity_incentive": ("股权激励", "员工持股"),
 }
 _SOURCE_WEIGHTS = {
     "announcement": 1.0,
@@ -265,7 +265,7 @@ def fetch_stock_fund_flow_summary(code: str) -> str:
             value = _safe_text(row.get(column))
             if value:
                 fields.append(f"{name}={value}")
-    return _compress_text("，".join(fields[:8]), max_len=420)
+    return _compress_text(", ".join(fields[:8]), max_len=420)
 
 
 def fetch_stock_quote_summary(code: str) -> str:
@@ -287,19 +287,19 @@ def fetch_stock_quote_summary(code: str) -> str:
     if len(parts) < 46:
         return ""
     fields = [
-        ("名称", _part(parts, 1)),
-        ("现价", _part(parts, 3)),
-        ("涨跌幅", _part(parts, 32)),
-        ("最高", _part(parts, 33)),
-        ("最低", _part(parts, 34)),
-        ("成交额万元", _part(parts, 37)),
-        ("换手率", _part(parts, 38)),
-        ("市盈率", _part(parts, 39)),
-        ("总市值亿元", _part(parts, 45)),
-        ("流通市值亿元", _part(parts, 44)),
+        ("name", _part(parts, 1)),
+        ("price", _part(parts, 3)),
+        ("change_pct", _part(parts, 32)),
+        ("high", _part(parts, 33)),
+        ("low", _part(parts, 34)),
+        ("amount_10k_cny", _part(parts, 37)),
+        ("turnover_rate", _part(parts, 38)),
+        ("pe_ratio", _part(parts, 39)),
+        ("total_mv_100m_cny", _part(parts, 45)),
+        ("circ_mv_100m_cny", _part(parts, 44)),
     ]
     return _compress_text(
-        "，".join(f"{name}={value}" for name, value in fields if value),
+        ", ".join(f"{name}={value}" for name, value in fields if value),
         max_len=360,
     )
 
@@ -313,7 +313,7 @@ def classify_context_events(row: dict[str, object]) -> list[str]:
             tags.append(label)
     for label, keywords in _NEGATIVE_EVENT_KEYWORDS.items():
         if any(keyword in text for keyword in keywords):
-            tags.append(f"风险:{label}")
+            tags.append(f"risk:{label}")
     return _dedupe(tags)
 
 
@@ -366,18 +366,18 @@ def _ensure_context_row_enrichment(
         row["negative_event_flags"] = classify_negative_events(row)
     summary = _safe_text(row.get("context_summary"), max_len=600)
     needs_summary = not summary
-    if isinstance(row.get("event_tags"), list) and row["event_tags"] and "事件标签:" not in summary:
+    if isinstance(row.get("event_tags"), list) and row["event_tags"] and "event_tags:" not in summary:
         needs_summary = True
     if (
         isinstance(row.get("announcement_categories"), list)
         and row["announcement_categories"]
-        and "公告类别:" not in summary
+        and "announcement_categories:" not in summary
     ):
         needs_summary = True
     if (
         isinstance(row.get("negative_event_flags"), list)
         and row["negative_event_flags"]
-        and "负面风险:" not in summary
+        and "negative_risks:" not in summary
     ):
         needs_summary = True
     if needs_summary:
@@ -493,24 +493,24 @@ def _normalized_source_weights(source_weights: dict[str, float] | None) -> dict[
 def _summarize_row_context(row: dict[str, object]) -> str:
     parts = []
     for key, label in (
-        ("news", "新闻"),
-        ("announcement", "公告"),
-        ("fund_flow", "资金流"),
-        ("quote", "行情估值"),
+        ("news", "news"),
+        ("announcement", "announcement"),
+        ("fund_flow", "fund_flow"),
+        ("quote", "quote_valuation"),
     ):
         value = _compress_text(row.get(key), max_len=180)
         if value:
             parts.append(f"{label}:{value}")
     event_tags = row.get("event_tags")
     if isinstance(event_tags, list) and event_tags:
-        parts.append("事件标签:" + ",".join(str(item) for item in event_tags[:6]))
+        parts.append("event_tags:" + ",".join(str(item) for item in event_tags[:6]))
     announcement_categories = row.get("announcement_categories")
     if isinstance(announcement_categories, list) and announcement_categories:
-        parts.append("公告类别:" + ",".join(str(item) for item in announcement_categories[:6]))
+        parts.append("announcement_categories:" + ",".join(str(item) for item in announcement_categories[:6]))
     negative_flags = row.get("negative_event_flags")
     if isinstance(negative_flags, list) and negative_flags:
-        parts.append("负面风险:" + ",".join(str(item) for item in negative_flags[:6]))
-    return _compress_text("；".join(parts), max_len=520)
+        parts.append("negative_risks:" + ",".join(str(item) for item in negative_flags[:6]))
+    return _compress_text("; ".join(parts), max_len=520)
 
 
 def _row_text(row: dict[str, object]) -> str:

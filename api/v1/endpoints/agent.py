@@ -22,22 +22,22 @@ from src.services.agent_model_service import list_agent_model_deployments
 
 # Tool name -> Chinese display name mapping
 TOOL_DISPLAY_NAMES: Dict[str, str] = {
-    "get_realtime_quote":         "获取实时行情",
-    "get_daily_history":          "获取历史K线",
-    "get_chip_distribution":      "分析筹码分布",
-    "get_analysis_context":       "获取分析上下文",
-    "get_stock_info":             "获取股票基本面",
-    "search_stock_news":          "搜索股票新闻",
-    "search_comprehensive_intel": "搜索综合情报",
-    "analyze_trend":              "分析技术趋势",
-    "calculate_ma":               "计算均线系统",
-    "get_volume_analysis":        "分析量能变化",
-    "analyze_pattern":            "识别K线形态",
-    "get_market_indices":         "获取市场指数",
-    "get_sector_rankings":        "分析行业板块",
-    "get_skill_backtest_summary": "获取技能回测概览",
-    "get_strategy_backtest_summary": "获取策略回测概览",
-    "get_stock_backtest_summary": "获取个股回测数据",
+    "get_realtime_quote":         "Get realtime quote",
+    "get_daily_history":          "Get historical K-line",
+    "get_chip_distribution":      "Analyze chip distribution",
+    "get_analysis_context":       "Get analysis context",
+    "get_stock_info":             "Get stock fundamentals",
+    "search_stock_news":          "Search stock news",
+    "search_comprehensive_intel": "Search comprehensive intel",
+    "analyze_trend":              "Analyze technical trend",
+    "calculate_ma":               "Calculate moving averages",
+    "get_volume_analysis":        "Analyze volume changes",
+    "analyze_pattern":            "Identify K-line patterns",
+    "get_market_indices":         "Get market indices",
+    "get_sector_rankings":        "Analyze sector rankings",
+    "get_skill_backtest_summary": "Get skill backtest summary",
+    "get_strategy_backtest_summary": "Get strategy backtest summary",
+    "get_stock_backtest_summary": "Get stock backtest data",
 }
 
 logger = logging.getLogger(__name__)
@@ -345,7 +345,7 @@ async def send_chat_to_notification(request: SendChatRequest):
         return {
             "success": False,
             "error": "no_channels",
-            "message": "未配置通知渠道，请先在设置中配置",
+            "message": "No notification channel configured; please configure one in settings first",
         }
     return {"success": True}
 
@@ -614,7 +614,7 @@ async def agent_chat_stream(
                     else:
                         event = await asyncio.wait_for(queue.get(), timeout=300.0)
                 except asyncio.TimeoutError:
-                    event = {"type": "error", "message": "分析超时"}
+                    event = {"type": "error", "message": "Analysis timed out"}
                     yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
                     break
                 yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"

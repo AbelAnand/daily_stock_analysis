@@ -1,8 +1,8 @@
-# Growth Quality Strategy / 成长质量
+# Growth Quality Strategy
 
 name: growth_quality
-display_name: 成长质量
-description: 结合收入利润增长、ROE、现金流和行业空间，识别高质量成长股与成长失速风险。
+display_name: Growth Quality
+description: Combines revenue/profit growth, ROE, cash flow, and industry headroom to identify high-quality growth stocks and the risk of a growth stall.
 category: framework
 core_rules: [2, 3, 5]
 required_tools:
@@ -10,45 +10,52 @@ required_tools:
   - get_realtime_quote
   - search_stock_news
   - analyze_trend
-aliases: [成长, 成长股, 成长质量]
+aliases: [growth, growth stock, growth quality]
 default_priority: 55
 market_regimes: [trending_up]
 
 instructions: |
-  **成长质量策略（Growth Quality Strategy）**
+  **Growth Quality Strategy**
 
-  适用场景：
-  - 关注公司中长期成长能力，而不是只看短线技术形态。
-  - 适合高景气行业、业绩持续改善或商业模式扩张阶段的公司。
+  Applicable scenarios:
+  - Focuses on the company's medium- to long-term growth capacity, not just short-term technical patterns.
+  - Suited to companies in high-growth industries, with sustained earnings improvement, or an expanding business model.
 
-  分析框架：
+  Analysis framework:
 
-  1. **成长性**
-     - 优先查看财报字段中的营业收入、归母净利润、经营现金流和 ROE。
-     - 判断收入增长和利润增长是否同向，是否存在“增收不增利”。
-     - 若只有概念热度但财报尚未验证，应降低成长确定性。
+  1. **Growth**
+     - Prioritize the revenue, net profit attributable to parent, operating cash flow, and ROE fields
+       from the financial reports.
+     - Judge whether revenue growth and profit growth move together, or whether there's "revenue growth
+       without profit growth."
+     - If there's only conceptual hype not yet verified by the financial reports, lower the growth-certainty rating.
 
-  2. **质量**
-     - ROE 越高且稳定，质量越好。
-     - 经营现金流与净利润方向一致，说明盈利质量更可靠。
-     - 现金流显著弱于利润时，要提示回款、存货或应收风险。
+  2. **Quality**
+     - The higher and more stable ROE is, the better the quality.
+     - Operating cash flow moving in the same direction as net profit indicates more reliable earnings quality.
+     - When cash flow is significantly weaker than profit, flag receivables, inventory, or collection risk.
 
-  3. **估值承受力**
-     - 使用 PE/PB、市值等估值字段判断市场是否已经提前透支成长。
-     - 高成长可承受更高估值，但必须说明增长能否覆盖估值。
-     - 估值高且成长放缓时，应明显下调评分。
+  3. **Valuation tolerance**
+     - Use PE/PB, market cap, and other valuation fields to judge whether the market has already
+       front-run the growth.
+     - High growth can support a higher valuation, but you must state whether growth can cover that valuation.
+     - When valuation is high and growth is slowing, meaningfully lower the score.
 
-  4. **趋势确认**
-     - 使用 `analyze_trend` 判断长期成长逻辑是否被市场资金确认。
-     - 基本面向好但技术面未确认时，优先给观察条件而不是直接追买。
+  4. **Trend confirmation**
+     - Use `analyze_trend` to judge whether the long-term growth thesis has been confirmed by market money flow.
+     - When fundamentals are improving but the technicals haven't confirmed it, prefer watch conditions
+       over chasing a buy directly.
 
-  输出要求：
-  - 明确公司处于：高质量成长 / 成长验证中 / 成长放缓 / 成长证伪。
-  - 说明成长来自收入扩张、利润率改善、行业景气，还是一次性因素。
-  - 给出适合成长股的买点：业绩验证后突破、回踩长期均线或估值回落。
+  Output requirements:
+  - State clearly whether the company is: high-quality growth / growth being verified / growth slowing /
+    growth thesis disproven.
+  - State whether the growth comes from revenue expansion, margin improvement, industry tailwinds, or
+    one-off factors.
+  - Give buy points suited to growth stocks: a breakout after results are verified, a pullback to a
+    long-term moving average, or a valuation pullback.
 
-  评分调整建议：
-  - 收入、利润、现金流和 ROE 同向改善：`sentiment_score +15`
-  - 行业景气与公司新闻互相验证：额外 `+6`
-  - 高估值但成长未验证：`sentiment_score -8`
-  - 增收不增利或现金流恶化：`sentiment_score -12`
+  Suggested score adjustments:
+  - Revenue, profit, cash flow, and ROE all improving together: `sentiment_score +15`
+  - Industry tailwinds and company news mutually confirming: an additional `+6`
+  - High valuation but growth not yet verified: `sentiment_score -8`
+  - Revenue growth without profit growth, or deteriorating cash flow: `sentiment_score -12`

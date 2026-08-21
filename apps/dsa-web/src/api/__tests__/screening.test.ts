@@ -85,7 +85,7 @@ describe('screeningApi', () => {
       },
     });
 
-    await expect(screeningApi.enable()).rejects.toThrow('选股功能不可用');
+    await expect(screeningApi.enable()).rejects.toThrow('Screening is unavailable');
 
     expect(updateConfig).toHaveBeenNthCalledWith(1, {
       configVersion: 'v1',

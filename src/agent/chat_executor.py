@@ -162,13 +162,13 @@ class AgentChatExecutor:
                 )
         else:
             if not self.backend.runtime_owns_loop:
-                failure_note = f"[分析失败] {result.error or '未知错误'}"
+                failure_note = f"[Analysis failed] {result.error or 'unknown error'}"
             elif result.error_code == "cancelled":
-                failure_note = "[已停止] 本次分析已由用户停止。"
+                failure_note = "[Stopped] This analysis was stopped by the user."
             elif result.error_code == "timeout":
-                failure_note = "[已超时] 本次分析已在时间限制内结束。"
+                failure_note = "[Timed out] This analysis ended when the time limit was reached."
             else:
-                failure_note = f"[分析失败] {result.error or '未知错误'}"
+                failure_note = f"[Analysis failed] {result.error or 'unknown error'}"
             conversation_manager.add_message(
                 turn.session_id,
                 "assistant",

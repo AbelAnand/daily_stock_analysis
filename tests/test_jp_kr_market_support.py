@@ -95,8 +95,8 @@ def test_yfinance_keeps_jp_kr_suffix_codes_and_indices() -> None:
 
     assert {item["code"] for item in jp_indices} == {"N225", "TOPX"}
     assert {item["code"] for item in kr_indices} == {"KS11", "KQ11"}
-    assert ("^N225", "日经225", "N225") in captured
-    assert ("^TOPX", "东证指数", "TOPX") in captured
+    assert ("^N225", "Nikkei 225", "N225") in captured
+    assert ("^TOPX", "TOPIX", "TOPX") in captured
     assert ("^KS11", "KOSPI", "KS11") in captured
     assert ("^KQ11", "KOSDAQ", "KQ11") in captured
 

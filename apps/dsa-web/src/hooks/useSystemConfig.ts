@@ -8,6 +8,38 @@ import type {
   SystemConfigUpdateItem,
 } from '../types/systemConfig';
 import { serializeStockListValue } from '../utils/stockList';
+import { useUiLanguage } from '../contexts/UiLanguageContext';
+
+const SAVE_TEXT = {
+  zh: {
+    noChangesToast: '当前没有可保存的修改。',
+    noChangesMessage: '当前没有可保存的修改',
+    validationFailedTitle: '配置校验未通过',
+    validationFailedMessage: '请先修正表单错误后再保存。',
+    validationFailedRawMessage: '配置校验未通过，请先修正表单错误。',
+    validationFailedShort: '配置校验未通过',
+    warningsSeparator: '；',
+    warningsPrefix: '；警告：',
+    updatedToast: '配置已更新',
+    versionConflictTitle: '配置版本冲突',
+    versionConflictMessageSuffix: '，请先重新加载配置。',
+    saveFailed: '保存失败',
+  },
+  en: {
+    noChangesToast: 'There are no changes to save.',
+    noChangesMessage: 'There are no changes to save',
+    validationFailedTitle: 'Configuration validation failed',
+    validationFailedMessage: 'Please fix the form errors before saving.',
+    validationFailedRawMessage: 'Configuration validation failed. Please fix the form errors.',
+    validationFailedShort: 'Configuration validation failed',
+    warningsSeparator: '; ',
+    warningsPrefix: '; Warnings: ',
+    updatedToast: 'Configuration updated',
+    versionConflictTitle: 'Configuration version conflict',
+    versionConflictMessageSuffix: '. Please reload the configuration first.',
+    saveFailed: 'Save failed',
+  },
+} as const;
 
 type ToastState = {
   type: 'success';
@@ -69,6 +101,8 @@ function normalizeFieldValue(value: string, schema: SystemConfigItem['schema'] |
 }
 
 export function useSystemConfig() {
+  const { language } = useUiLanguage();
+  const saveText = SAVE_TEXT[language];
   // Server state
   const [configVersion, setConfigVersion] = useState<string>('');
   const [maskToken, setMaskToken] = useState<string>('******');
@@ -301,13 +335,13 @@ export function useSystemConfig() {
     const resolvedChangedItems = explicitItems.length > 0 ? explicitItems : getChangedItems();
 
     if (!explicitItems.length && !hasDirty) {
-      setToast({ type: 'success', message: '当前没有可保存的修改。' });
-      return { success: true, message: '当前没有可保存的修改' };
+      setToast({ type: 'success', message: saveText.noChangesToast });
+      return { success: true, message: saveText.noChangesMessage };
     }
 
     if (!resolvedChangedItems.length) {
-      setToast({ type: 'success', message: '当前没有可保存的修改。' });
-      return { success: true, message: '当前没有可保存的修改' };
+      setToast({ type: 'success', message: saveText.noChangesToast });
+      return { success: true, message: saveText.noChangesMessage };
     }
 
     setIsSaving(true);
@@ -320,15 +354,15 @@ export function useSystemConfig() {
 
       if (!validateResult.valid) {
         setSaveError(createParsedApiError({
-          title: '配置校验未通过',
-          message: '请先修正表单错误后再保存。',
-          rawMessage: '配置校验未通过，请先修正表单错误。',
+          title: saveText.validationFailedTitle,
+          message: saveText.validationFailedMessage,
+          rawMessage: saveText.validationFailedRawMessage,
           category: 'http_error',
         }));
         setRetryAction('save');
         return {
           success: false,
-          message: '配置校验未通过',
+          message: saveText.validationFailedShort,
           issues: validateResult.issues,
         };
       }
@@ -345,9 +379,9 @@ export function useSystemConfig() {
       applyServerPayload(refreshed.items, refreshed.configVersion, refreshed.maskToken);
 
       const warningText = updateResult.warnings?.length
-        ? `；警告：${updateResult.warnings.join('；')}`
+        ? `${saveText.warningsPrefix}${updateResult.warnings.join(saveText.warningsSeparator)}`
         : '';
-      setToast({ type: 'success', message: `配置已更新${warningText}` });
+      setToast({ type: 'success', message: `${saveText.updatedToast}${warningText}` });
       return { success: true };
     } catch (error: unknown) {
       if (error instanceof SystemConfigValidationError) {
@@ -355,8 +389,8 @@ export function useSystemConfig() {
         setSaveError(error.parsedError);
       } else if (error instanceof SystemConfigConflictError) {
         setSaveError(createParsedApiError({
-          title: '配置版本冲突',
-          message: `${error.message}，请先重新加载配置。`,
+          title: saveText.versionConflictTitle,
+          message: `${error.message}${saveText.versionConflictMessageSuffix}`,
           rawMessage: error.parsedError.rawMessage,
           status: error.parsedError.status,
           category: error.parsedError.category,
@@ -367,7 +401,7 @@ export function useSystemConfig() {
 
       setToast({ type: 'error', error: getParsedApiError(error) });
       setRetryAction('save');
-      return { success: false, message: '保存失败' };
+      return { success: false, message: saveText.saveFailed };
     } finally {
       setIsSaving(false);
     }
@@ -377,6 +411,7 @@ export function useSystemConfig() {
     getChangedItems,
     hasDirty,
     maskToken,
+    saveText,
   ]);
 
   const retry = useCallback(async () => {

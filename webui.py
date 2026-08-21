@@ -31,8 +31,8 @@ def main() -> int:
     host = os.getenv("WEBUI_HOST", os.getenv("API_HOST", "127.0.0.1"))
     port = int(os.getenv("WEBUI_PORT", os.getenv("API_PORT", "8000")))
 
-    print(f"正在启动 Web 服务: http://{host}:{port}")
-    print(f"API 文档: http://{host}:{port}/docs")
+    print(f"Starting web service: http://{host}:{port}")
+    print(f"API docs: http://{host}:{port}/docs")
     print()
 
     try:

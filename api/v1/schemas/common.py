@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class RootResponse(BaseModel):
     """API 根路由响应"""
     
-    message: str = Field(..., description="API 运行状态消息", json_schema_extra={"example": "Daily Stock Analysis API is running"})
-    version: Optional[str] = Field(None, description="API 版本", json_schema_extra={"example": "1.0.0"})
+    message: str = Field(..., description="API status message", json_schema_extra={"example": "Daily Stock Analysis API is running"})
+    version: Optional[str] = Field(None, description="API version", json_schema_extra={"example": "1.0.0"})
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -31,8 +31,8 @@ class RootResponse(BaseModel):
 class HealthResponse(BaseModel):
     """健康检查响应"""
     
-    status: str = Field(..., description="服务状态", json_schema_extra={"example": "ok"})
-    timestamp: Optional[str] = Field(None, description="时间戳")
+    status: str = Field(..., description="Service status", json_schema_extra={"example": "ok"})
+    timestamp: Optional[str] = Field(None, description="Timestamp")
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -45,14 +45,14 @@ class HealthResponse(BaseModel):
 class ErrorResponse(BaseModel):
     """错误响应"""
     
-    error: str = Field(..., description="错误类型", json_schema_extra={"example": "validation_error"})
-    message: str = Field(..., description="错误详情", json_schema_extra={"example": "请求参数错误"})
-    detail: Optional[Any] = Field(None, description="附加错误信息")
+    error: str = Field(..., description="Error type", json_schema_extra={"example": "validation_error"})
+    message: str = Field(..., description="Error message", json_schema_extra={"example": "Invalid request parameters"})
+    detail: Optional[Any] = Field(None, description="Additional error details")
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "error": "not_found",
-            "message": "资源不存在",
+            "message": "Resource not found",
             "detail": None
         }
     })
@@ -61,14 +61,14 @@ class ErrorResponse(BaseModel):
 class SuccessResponse(BaseModel):
     """通用成功响应"""
     
-    success: bool = Field(True, description="是否成功")
-    message: Optional[str] = Field(None, description="成功消息")
-    data: Optional[Any] = Field(None, description="响应数据")
+    success: bool = Field(True, description="Whether the operation succeeded")
+    message: Optional[str] = Field(None, description="Success message")
+    data: Optional[Any] = Field(None, description="Response data")
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "success": True,
-            "message": "操作成功",
+            "message": "Operation succeeded",
             "data": None
         }
     })

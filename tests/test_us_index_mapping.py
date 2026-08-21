@@ -143,25 +143,25 @@ class TestGetUsIndexYfSymbol(unittest.TestCase):
         """SPX should map to ^GSPC"""
         symbol, name = get_us_index_yf_symbol('SPX')
         self.assertEqual(symbol, '^GSPC')
-        self.assertEqual(name, '标普500指数')
+        self.assertEqual(name, 'S&P 500')
 
     def test_dji_mapping(self):
         """DJI should map to ^DJI"""
         symbol, name = get_us_index_yf_symbol('DJI')
         self.assertEqual(symbol, '^DJI')
-        self.assertEqual(name, '道琼斯工业指数')
+        self.assertEqual(name, 'Dow Jones Industrial Average')
 
     def test_nasdaq_mapping(self):
         """NASDAQ should map to ^IXIC"""
         symbol, name = get_us_index_yf_symbol('NASDAQ')
         self.assertEqual(symbol, '^IXIC')
-        self.assertEqual(name, '纳斯达克综合指数')
+        self.assertEqual(name, 'NASDAQ Composite')
 
     def test_vix_mapping(self):
         """VIX should map to ^VIX"""
         symbol, name = get_us_index_yf_symbol('VIX')
         self.assertEqual(symbol, '^VIX')
-        self.assertEqual(name, 'VIX恐慌指数')
+        self.assertEqual(name, 'VIX Volatility Index')
 
     def test_case_insensitive(self):
         """Mapping should be case-insensitive"""
@@ -173,7 +173,7 @@ class TestGetUsIndexYfSymbol(unittest.TestCase):
         """Codes already in YF format should still work"""
         symbol, name = get_us_index_yf_symbol('^GSPC')
         self.assertEqual(symbol, '^GSPC')
-        self.assertEqual(name, '标普500指数')
+        self.assertEqual(name, 'S&P 500')
 
     def test_unknown_code_returns_none(self):
         """Unknown codes should return (None, None)"""

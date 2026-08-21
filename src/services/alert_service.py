@@ -1068,7 +1068,7 @@ class AlertService:
                             rule_id=int(data["id"] or 0),
                             alert_type=data["alert_type"],
                             effective_target=f"{data['target_scope']}:{data['target']}:overflow",
-                            display_target="展开目标超限",
+                            display_target="Expanded targets over cap",
                             message=f"Skipped {overflow_count} targets over soft cap",
                             record_status="degraded",
                         )

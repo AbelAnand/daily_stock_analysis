@@ -54,15 +54,15 @@ class ResearchCommand(BotCommand):
         if not args:
             return BotResponse.text_response(
                 f"Usage: {self.usage}\n"
-                "Example: /research 600519 近期有哪些风险\n"
-                "Example: /research 新能源板块前景分析"
+                "Example: /research AAPL What are the near-term risks?\n"
+                "Example: /research Outlook for the semiconductor sector"
             )
 
         config = get_config()
 
         if not config.agent_mode:
             return BotResponse.text_response(
-                "⚠️ Agent 模式未开启，无法使用深度研究功能。\n请在配置中设置 `AGENT_MODE=true`。"
+                "⚠️ Agent mode is disabled, so deep research is unavailable.\nSet `AGENT_MODE=true` in your configuration."
             )
 
         # Parse arguments — first arg may be stock code, rest is the question
@@ -115,7 +115,7 @@ class ResearchCommand(BotCommand):
             if getattr(result, "timed_out", False):
                 logger.warning("[ResearchCommand] Deep research timed out after %ss", duration)
                 return BotResponse.text_response(
-                    f"⏳ 深度研究超时（{duration}s / {research_timeout}s），请稍后重试或缩小研究范围。"
+                    f"⏳ Deep research timed out ({duration}s / {research_timeout}s). Please try again later or narrow the scope."
                 )
 
             if result.success:

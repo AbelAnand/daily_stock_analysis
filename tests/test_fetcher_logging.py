@@ -46,7 +46,7 @@ class _FailureFetcher(BaseFetcher):
 
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         raise DataFetchError(
-            "Eastmoney 历史K线接口失败: "
+            "Eastmoney history K-line API failed: "
             "endpoint=push2his.eastmoney.com/api/qt/stock/kline/get, "
             "category=remote_disconnect"
         )
@@ -78,8 +78,8 @@ class TestFetcherLogging(unittest.TestCase):
 
         log_text = "\n".join(captured.output)
         self.assertFalse(df.empty)
-        self.assertIn("[SuccessFetcher] 开始获取 600519 日线数据", log_text)
-        self.assertIn("[SuccessFetcher] 600519 获取成功:", log_text)
+        self.assertIn("[SuccessFetcher] Fetching daily data for 600519", log_text)
+        self.assertIn("[SuccessFetcher] 600519 fetched successfully:", log_text)
         self.assertIn("rows=2", log_text)
 
     def test_manager_logs_fallback_and_final_success(self):
@@ -91,10 +91,10 @@ class TestFetcherLogging(unittest.TestCase):
         log_text = "\n".join(captured.output)
         self.assertFalse(df.empty)
         self.assertEqual(source, "SuccessFetcher")
-        self.assertIn("[数据源尝试 1/2] [FailureFetcher] 获取 601006...", log_text)
-        self.assertIn("[数据源失败 1/2] [FailureFetcher] 601006:", log_text)
-        self.assertIn("[数据源切换] 601006: [FailureFetcher] -> [SuccessFetcher]", log_text)
-        self.assertIn("[数据源完成] 601006 使用 [SuccessFetcher] 获取成功:", log_text)
+        self.assertIn("[SourceAttempt 1/2] [FailureFetcher] fetching 601006...", log_text)
+        self.assertIn("[SourceFailed 1/2] [FailureFetcher] 601006:", log_text)
+        self.assertIn("[SourceSwitch] 601006: [FailureFetcher] -> [SuccessFetcher]", log_text)
+        self.assertIn("[SourceDone] 601006 fetched successfully via [SuccessFetcher]:", log_text)
 
     def test_manager_skips_builtin_fetchers_that_do_not_support_hk_daily(self):
         efinance = _RecordingFetcher("EfinanceFetcher", 0)
@@ -122,7 +122,7 @@ class TestFetcherLogging(unittest.TestCase):
                 fetcher.get_daily_data("1211.HK", start_date="2026-05-01", end_date="2026-05-08")
 
         mock_fetch_stock_data.assert_not_called()
-        self.assertIn("不支持港股日线", str(captured.exception))
+        self.assertIn("does not support HK daily data", str(captured.exception))
 
     def test_efinance_logs_eastmoney_endpoint_on_remote_disconnect(self):
         fetcher = EfinanceFetcher()
@@ -143,10 +143,10 @@ class TestFetcherLogging(unittest.TestCase):
                         fetcher.get_daily_data("601006", start_date="2026-01-07", end_date="2026-03-08")
 
         log_text = "\n".join(captured.output)
-        self.assertIn("Eastmoney 历史K线接口失败:", log_text)
+        self.assertIn("Eastmoney history K-line API failed:", log_text)
         self.assertIn("endpoint=push2his.eastmoney.com/api/qt/stock/kline/get", log_text)
         self.assertIn("category=remote_disconnect", log_text)
-        self.assertIn("[EfinanceFetcher] 601006 获取失败:", log_text)
+        self.assertIn("[EfinanceFetcher] 601006 fetch failed:", log_text)
 
 
 if __name__ == "__main__":

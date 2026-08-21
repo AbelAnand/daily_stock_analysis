@@ -19,14 +19,14 @@ StockRole = Literal["leader", "follower", "edge", "unknown"]
 
 
 class MarketStructureSource(BaseModel):
-    provider: str = Field(..., description="数据源标识，仅作快照元数据，不参与运行时 provider/model 路由")
-    dataset: str = Field(..., description="数据集标识，仅用于历史可追溯快照")
-    status: str = Field("ok", description="来源可用性快照")
-    message: Optional[str] = Field(None, description="来源提示，仅展示/排障用")
+    provider: str = Field(..., description="Data source identifier, snapshot metadata only; not used for runtime provider/model routing")
+    dataset: str = Field(..., description="Dataset identifier, used only for historical traceable snapshots")
+    status: str = Field("ok", description="Source availability snapshot")
+    message: Optional[str] = Field(None, description="Source hint, for display/troubleshooting only")
 
 
 class MarketStructureDataQuality(BaseModel):
-    status: MarketStructureStatus = Field("unknown", description="数据质量快照状态（展示语义）")
+    status: MarketStructureStatus = Field("unknown", description="Data quality snapshot status (display semantics)")
     missing_fields: List[str] = Field(default_factory=list)
     sources: List[MarketStructureSource] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)

@@ -95,7 +95,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
             bias_ma5=-2.0,
         )
         self.analyzer._generate_signal(result)
-        self._assert_contains(result.signal_reasons, "回踩买点")
+        self._assert_contains(result.signal_reasons, "pullback buy point")
 
     @patch("src.stock_analyzer.get_config")
     def test_bias_close_to_ma5(self, mock_get_config: MagicMock) -> None:
@@ -106,7 +106,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
             bias_ma5=1.5,
         )
         self.analyzer._generate_signal(result)
-        self._assert_contains(result.signal_reasons, "介入好时机")
+        self._assert_contains(result.signal_reasons, "good entry timing")
 
     @patch("src.stock_analyzer.get_config")
     def test_bias_slightly_high(self, mock_get_config: MagicMock) -> None:
@@ -117,11 +117,11 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
             bias_ma5=4.0,
         )
         self.analyzer._generate_signal(result)
-        self._assert_contains(result.signal_reasons, "可小仓介入")
+        self._assert_contains(result.signal_reasons, "small position entry possible")
 
     @patch("src.stock_analyzer.get_config")
     def test_strong_trend_relaxed_threshold(self, mock_get_config: MagicMock) -> None:
-        """STRONG_BULL + trend_strength=75 + bias=6% -> '可轻仓追踪' (effective=7.5%)."""
+        """STRONG_BULL + trend_strength=75 + bias=6% -> light-position tracking (effective=7.5%)."""
         mock_get_config.return_value.bias_threshold = 5.0
         result = _make_result(
             trend_status=TrendStatus.STRONG_BULL,
@@ -129,8 +129,8 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
             bias_ma5=6.0,
         )
         self.analyzer._generate_signal(result)
-        self._assert_contains(result.signal_reasons, "可轻仓追踪")
-        self._assert_not_contains(result.risk_factors, "严禁追高")
+        self._assert_contains(result.signal_reasons, "track with a light position")
+        self._assert_not_contains(result.risk_factors, "do not chase")
 
     @patch("src.stock_analyzer.get_config")
     def test_non_strong_trend_strict_threshold(self, mock_get_config: MagicMock) -> None:
@@ -141,7 +141,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
             bias_ma5=6.0,
         )
         self.analyzer._generate_signal(result)
-        self._assert_contains(result.risk_factors, "严禁追高")
+        self._assert_contains(result.risk_factors, "do not chase")
 
     @patch("src.stock_analyzer.get_config")
     def test_strong_trend_exceed_effective(self, mock_get_config: MagicMock) -> None:
@@ -153,7 +153,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
             bias_ma5=10.0,
         )
         self.analyzer._generate_signal(result)
-        self._assert_contains(result.risk_factors, "严禁追高")
+        self._assert_contains(result.risk_factors, "do not chase")
 
     @patch("src.stock_analyzer.get_config")
     def test_boundary_at_base_threshold(self, mock_get_config: MagicMock) -> None:
@@ -178,7 +178,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
         # elif bias > base_threshold and is_strong_trend -> 5 > 5 is False
         # else: risks.append 严禁追高 - so we get 严禁追高
         # Because 5.0 is not < 5.0, not > 5.0 when effective=base=5. So we hit the else.
-        self._assert_contains(result.risk_factors, "严禁追高")
+        self._assert_contains(result.risk_factors, "do not chase")
 
     @patch("src.stock_analyzer.get_config")
     def test_signal_thresholds_follow_canonical_score_scale(self, mock_get_config: MagicMock) -> None:

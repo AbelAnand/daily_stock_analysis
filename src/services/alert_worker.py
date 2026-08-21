@@ -651,7 +651,14 @@ class AlertWorker:
         )
         if excerpt:
             content = f"{content}\n\n{excerpt}"
-        signal_excerpt = format_decision_signal_excerpt(diagnostics.get("decision_signal_summary"))
+        try:
+            report_language = getattr(self.config_provider(), "report_language", "zh")
+        except Exception:
+            report_language = "zh"
+        signal_excerpt = format_decision_signal_excerpt(
+            diagnostics.get("decision_signal_summary"),
+            report_language=report_language,
+        )
         if signal_excerpt:
             content = f"{content}\n\n{signal_excerpt}"
         alert_text = NotificationBuilder.build_simple_alert(title=title, content=content, alert_type="warning")

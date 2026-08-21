@@ -10,9 +10,9 @@ type UiLanguageContextValue = {
 };
 
 const fallbackContext: UiLanguageContextValue = {
-  language: 'zh',
+  language: 'en',
   setLanguage: () => undefined,
-  t: (key, params) => formatUiText(UI_TEXT.zh[key], params),
+  t: (key, params) => formatUiText(UI_TEXT.en[key], params),
 };
 
 const UiLanguageContext = createContext<UiLanguageContextValue | null>(null);

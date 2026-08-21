@@ -541,6 +541,7 @@ def resolve_skill_prompt_state(config=None, skills: Optional[List[str]] = None) 
         skill_instructions=skill_manager.get_skill_instructions(),
         default_skill_policy=get_default_trading_skill_policy(
             explicit_skill_selection=not use_legacy_default_prompt,
+            report_language=str(getattr(config, "report_language", "") or ""),
         ),
         technical_skill_policy=get_default_technical_skill_policy(
             explicit_skill_selection=not use_legacy_default_prompt,

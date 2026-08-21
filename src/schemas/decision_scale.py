@@ -18,30 +18,42 @@ class DecisionScaleBand:
     signal_key: str
     action: str
     decision_type: str
-    label_zh: str
-    description_zh: str
+    label: str
+    description: str
+
+    # Backward-compatible aliases for the previous Chinese-named fields.
+    @property
+    def label_zh(self) -> str:
+        return self.label
+
+    @property
+    def description_zh(self) -> str:
+        return self.description
 
 
 CANONICAL_DECISION_SCALE: tuple[DecisionScaleBand, ...] = (
-    DecisionScaleBand(80, 100, "strong_buy", "buy", "buy", "强烈买入", "高胜率机会，可执行买入/加仓计划"),
-    DecisionScaleBand(60, 79, "buy", "buy", "buy", "买入", "偏积极机会，允许少量待确认项"),
-    DecisionScaleBand(40, 59, "watch", "watch", "hold", "观望", "信号分歧或期望值不足（EV<0 或 R<1.5），需给出明确翻转条件"),
-    DecisionScaleBand(20, 39, "reduce", "reduce", "sell", "减仓", "风险明显抬升，优先降低暴露"),
-    DecisionScaleBand(0, 19, "sell", "sell", "sell", "卖出", "趋势或风险显著恶化，优先退出"),
+    DecisionScaleBand(80, 100, "strong_buy", "buy", "buy", "Strong Buy", "High-probability setup; execute the buy/add plan"),
+    DecisionScaleBand(60, 79, "buy", "buy", "buy", "Buy", "Constructive setup; a few items may still await confirmation"),
+    DecisionScaleBand(40, 59, "watch", "watch", "hold", "Watch", "Mixed signals or insufficient expected value (EV<0 or R<1.5); a clear flip condition is required"),
+    DecisionScaleBand(20, 39, "reduce", "reduce", "sell", "Reduce", "Risk is clearly rising; prioritize lowering exposure"),
+    DecisionScaleBand(0, 19, "sell", "sell", "sell", "Sell", "Trend or risk has deteriorated materially; prioritize exiting"),
 )
 
 
-CANONICAL_DECISION_SCALE_PROMPT_ZH = """## Canonical 评分与动作口径
+CANONICAL_DECISION_SCALE_PROMPT = """## Canonical score and action scale
 
-- `sentiment_score`、`operation_advice`、三态 `decision_type` 与八态 `action` 必须按同一口径表达。
-- 分数表达的是结论的信念强度（conviction），不是动作本身；最终 `action` 必须服从期望值（EV）契约：仅当 EV < 0 或 R < 1.5 时才允许停留在 hold/watch。
-- 80-100：强烈买入，`action=buy`，`decision_type=buy`。
-- 60-79：买入，`action=buy`，`decision_type=buy`。
-- 40-59：中性区间，默认对应观望（`action=watch`，`decision_type=hold`），但这不是机械映射：若 EV 为正且 R ≥ 1.5，应如实给出方向性结论并让分数反映真实信念；停留在 watch 时必须在 `ev_contract.flip_condition` 写明能把结论翻转为买入/卖出的具体价位或事件。
-- 20-39：减仓，`action=reduce`，`decision_type=sell`。
-- 0-19：卖出，`action=sell`，`decision_type=sell`。
-- `decision_type` 只保留 `buy|hold|sell` 兼容统计；更细建议必须写入 `action`。
-- 若 score >= 60 但最终 `action` 是 `hold/watch`，或 score < 40 但最终 `action` 是 `hold/watch`，必须在 `guardrail_reason` 或 `dashboard.decision_stability.reason` 中说明降级原因（通常应引用 EV/R 数值或翻转条件）。"""
+- `sentiment_score`, `operation_advice`, the three-state `decision_type` and the eight-state `action` must all express the same verdict.
+- The score expresses the conviction behind the conclusion, not the action itself; the final `action` must obey the expected-value (EV) contract: staying at hold/watch is only allowed when EV < 0 or R < 1.5.
+- 80-100: Strong Buy, `action=buy`, `decision_type=buy`.
+- 60-79: Buy, `action=buy`, `decision_type=buy`.
+- 40-59: neutral zone, defaults to Watch (`action=watch`, `decision_type=hold`), but this is not a mechanical mapping: if EV is positive and R >= 1.5, give the directional conclusion honestly and let the score reflect real conviction; when staying at watch, `ev_contract.flip_condition` must state the specific price level or event that would flip the conclusion to buy/sell.
+- 20-39: Reduce, `action=reduce`, `decision_type=sell`.
+- 0-19: Sell, `action=sell`, `decision_type=sell`.
+- `decision_type` only keeps `buy|hold|sell` for compatible statistics; finer-grained advice must go into `action`.
+- If score >= 60 but the final `action` is `hold/watch`, or score < 40 but the final `action` is `hold/watch`, the downgrade reason must be stated in `guardrail_reason` or `dashboard.decision_stability.reason` (normally citing EV/R values or the flip condition)."""
+
+# Backward-compatible alias (the prompt is now English-first).
+CANONICAL_DECISION_SCALE_PROMPT_ZH = CANONICAL_DECISION_SCALE_PROMPT
 
 
 def normalize_score(value: Any) -> Optional[int]:

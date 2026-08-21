@@ -57,8 +57,8 @@ describe('IntelligentImport', () => {
       configurable: true,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '选择图片' }));
-    fireEvent.click(screen.getByRole('button', { name: '选择文件' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose image' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose file' }));
 
     expect(imageClick).toHaveBeenCalledTimes(1);
     expect(dataClick).toHaveBeenCalledTimes(1);
@@ -90,8 +90,8 @@ describe('IntelligentImport', () => {
       configurable: true,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '选择图片' }));
-    fireEvent.click(screen.getByRole('button', { name: '选择文件' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose image' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose file' }));
 
     expect(imageClick).not.toHaveBeenCalled();
     expect(dataClick).not.toHaveBeenCalled();
@@ -115,14 +115,14 @@ describe('IntelligentImport', () => {
       />,
     );
 
-    fireEvent.change(screen.getByPlaceholderText('或粘贴 CSV/Excel 复制的文本...'), {
+    fireEvent.change(screen.getByPlaceholderText('Or paste text copied from CSV/Excel...'), {
       target: { value: '000001' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '解析' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Parse' }));
 
     await screen.findByText('SZ000001');
 
-    fireEvent.click(screen.getByRole('button', { name: '合并到自选股' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Merge into watchlist' }));
 
     await waitFor(() => {
       expect(update).toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe('IntelligentImport', () => {
     await waitFor(() => {
       expect(onMerged).toHaveBeenCalledWith('SH600000,SZ000001');
     });
-    expect(await screen.findByText('配置已更新，请再次点击「合并到自选股」')).toBeInTheDocument();
+    expect(await screen.findByText('Configuration changed. Click "Merge into watchlist" again.')).toBeInTheDocument();
   });
 
   it('normalizes existing mixed separators when merging into watchlist', async () => {
@@ -149,14 +149,14 @@ describe('IntelligentImport', () => {
       />,
     );
 
-    fireEvent.change(screen.getByPlaceholderText('或粘贴 CSV/Excel 复制的文本...'), {
+    fireEvent.change(screen.getByPlaceholderText('Or paste text copied from CSV/Excel...'), {
       target: { value: 'HK00700' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '解析' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Parse' }));
 
     await screen.findByText('HK00700');
 
-    fireEvent.click(screen.getByRole('button', { name: '合并到自选股' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Merge into watchlist' }));
 
     await waitFor(() => {
       expect(update).toHaveBeenCalledWith({

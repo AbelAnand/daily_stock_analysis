@@ -176,7 +176,7 @@ def _get_stock_index_signature(index_path: Path) -> tuple[float, int] | None:
     try:
         stat_result = index_path.stat()
     except OSError as exc:
-        logger.debug("[股票名称] 读取股票索引元数据失败 %s: %s", index_path, exc)
+        logger.debug("[Stock name] Failed to read stock index metadata %s: %s", index_path, exc)
         return None
     if not index_path.is_file():
         return None
@@ -262,13 +262,13 @@ def get_stock_name_index_map() -> Dict[str, str]:
                 else:
                     _STOCK_INDEX_CACHE = _load_stock_index_file(index_path)
                 logger.debug(
-                    "[股票名称] 已加载前端股票索引映射: %s (%d 条)",
+                    "[Stock name] Loaded frontend stock index mapping: %s (%d entries)",
                     index_path,
                     len(_STOCK_INDEX_CACHE),
                 )
                 return _STOCK_INDEX_CACHE
             except (OSError, TypeError, ValueError) as exc:
-                logger.debug("[股票名称] 读取股票索引失败 %s: %s", index_path, exc)
+                logger.debug("[Stock name] Failed to read stock index %s: %s", index_path, exc)
 
         _STOCK_INDEX_CACHE = {}
         return _STOCK_INDEX_CACHE
@@ -340,7 +340,7 @@ def get_stock_code_candidates_map() -> Dict[str, tuple[str, ...]]:
                     merged_candidates.setdefault(key, set()).update(values)
             except (OSError, TypeError, ValueError) as exc:
                 logger.debug(
-                    "[股票索引] 解析代码候选失败 %s: %s",
+                    "[Stock index] Failed to parse code candidates %s: %s",
                     index_path,
                     exc,
                 )

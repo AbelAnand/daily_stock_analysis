@@ -254,7 +254,7 @@ class RunDiagnosticsP2TestCase(unittest.TestCase):
         )
 
         self.assertEqual(summary["status"], "degraded")
-        self.assertEqual(summary["status_label"], "部分降级")
+        self.assertEqual(summary["status_label"], "Partially degraded")
         self.assertEqual(summary["components"]["realtime_quote"]["status"], "degraded")
         self.assertEqual(summary["components"]["daily_data"]["status"], "ok")
         self.assertEqual(summary["components"]["llm"]["status"], "ok")
@@ -286,7 +286,7 @@ class RunDiagnosticsP2TestCase(unittest.TestCase):
         daily = summary["components"]["daily_data"]
         self.assertEqual(summary["status"], "degraded")
         self.assertEqual(daily["status"], "degraded")
-        self.assertIn("未进入本次分析输入", daily["message"])
+        self.assertIn("was not included in this analysis input", daily["message"])
         self.assertEqual(daily["details"]["analysis_input_status"], "missing")
         self.assertEqual(
             daily["details"]["analysis_input_missing_reasons"],
@@ -316,8 +316,8 @@ class RunDiagnosticsP2TestCase(unittest.TestCase):
 
         news = summary["components"]["news"]
         self.assertEqual(news["status"], "unknown")
-        self.assertIn("未进入本次分析输入", news["message"])
-        self.assertIn("后续检索", news["message"])
+        self.assertIn("was not included in this analysis input", news["message"])
+        self.assertIn("a later search", news["message"])
         self.assertEqual(news["details"]["analysis_input_status"], "missing")
 
     def test_news_results_with_missing_analysis_input_are_degraded(self) -> None:
@@ -348,8 +348,8 @@ class RunDiagnosticsP2TestCase(unittest.TestCase):
         self.assertEqual(news["details"]["record_count"], 3)
         self.assertEqual(news["details"]["analysis_input_status"], "missing")
         self.assertEqual(news["details"]["evidence_scope"], "retrieval_vs_analysis_input")
-        self.assertIn("新闻检索返回 3 条结果", news["message"])
-        self.assertIn("未进入本次分析输入", news["message"])
+        self.assertIn("News search returned 3 result(s)", news["message"])
+        self.assertIn("was not included in this analysis input", news["message"])
 
     def test_summary_marks_llm_failure_as_failed(self) -> None:
         diagnostics = _diagnostic_snapshot()
@@ -374,7 +374,7 @@ class RunDiagnosticsP2TestCase(unittest.TestCase):
 
         self.assertEqual(summary["status"], "failed")
         self.assertEqual(summary["components"]["llm"]["status"], "failed")
-        self.assertIn("LLM 失败", summary["reason"])
+        self.assertIn("LLM failed", summary["reason"])
         self.assertNotIn("secret-value", summary["copy_text"])
 
     def test_copy_text_redacts_authorization_bearer_tokens(self) -> None:
@@ -491,7 +491,7 @@ class RunDiagnosticsP2TestCase(unittest.TestCase):
         )
 
         self.assertEqual(summary["status"], "unknown")
-        self.assertEqual(summary["status_label"], "未知")
+        self.assertEqual(summary["status_label"], "Unknown")
         self.assertEqual(summary["query_id"], "legacy-query")
 
     def test_history_service_and_endpoint_return_diagnostic_summary(self) -> None:

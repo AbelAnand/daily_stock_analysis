@@ -66,22 +66,25 @@ describe('AlertRuleList', () => {
   });
 
   function renderList(overrides: Partial<React.ComponentProps<typeof AlertRuleList>> = {}) {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
     render(
-      <AlertRuleList
-        rules={rules}
-        total={40}
-        page={1}
-        pageSize={20}
-        enabledFilter="all"
-        alertTypeFilter="all"
-        onEnabledFilterChange={onEnabledFilterChange}
-        onAlertTypeFilterChange={onAlertTypeFilterChange}
-        onPageChange={onPageChange}
-        onToggleEnabled={onToggleEnabled}
-        onDelete={onDelete}
-        onTest={onTest}
-        {...overrides}
-      />,
+      <UiLanguageProvider>
+        <AlertRuleList
+          rules={rules}
+          total={40}
+          page={1}
+          pageSize={20}
+          enabledFilter="all"
+          alertTypeFilter="all"
+          onEnabledFilterChange={onEnabledFilterChange}
+          onAlertTypeFilterChange={onAlertTypeFilterChange}
+          onPageChange={onPageChange}
+          onToggleEnabled={onToggleEnabled}
+          onDelete={onDelete}
+          onTest={onTest}
+          {...overrides}
+        />
+      </UiLanguageProvider>,
     );
   }
 

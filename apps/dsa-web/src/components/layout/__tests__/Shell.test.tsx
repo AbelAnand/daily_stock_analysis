@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 import { Shell } from '../Shell';
 
@@ -35,15 +37,21 @@ beforeAll(() => {
 });
 
 describe('Shell', () => {
+  beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+  });
+
   it.skip('renders navigation, theme toggle and completion badge', () => {
     render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ThemeProvider>
-          <Shell>
-            <div>page content</div>
-          </Shell>
-        </ThemeProvider>
-      </MemoryRouter>
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/chat']}>
+          <ThemeProvider>
+            <Shell>
+              <div>page content</div>
+            </Shell>
+          </ThemeProvider>
+        </MemoryRouter>
+      </UiLanguageProvider>
     );
 
     expect(screen.getAllByRole('button', { name: '切换主题' }).length).toBeGreaterThan(0);
@@ -56,13 +64,15 @@ describe('Shell', () => {
 
   it.skip('opens the theme menu from the sidebar toggle', async () => {
     render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ThemeProvider>
-          <Shell>
-            <div>page content</div>
-          </Shell>
-        </ThemeProvider>
-      </MemoryRouter>
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/chat']}>
+          <ThemeProvider>
+            <Shell>
+              <div>page content</div>
+            </Shell>
+          </ThemeProvider>
+        </MemoryRouter>
+      </UiLanguageProvider>
     );
 
     fireEvent.click(screen.getAllByRole('button', { name: '切换主题' })[0]);
@@ -72,13 +82,15 @@ describe('Shell', () => {
 
   it('shows a confirmation dialog before logout', async () => {
     render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ThemeProvider>
-          <Shell>
-            <div>page content</div>
-          </Shell>
-        </ThemeProvider>
-      </MemoryRouter>
+      <UiLanguageProvider>
+        <MemoryRouter initialEntries={['/chat']}>
+          <ThemeProvider>
+            <Shell>
+              <div>page content</div>
+            </Shell>
+          </ThemeProvider>
+        </MemoryRouter>
+      </UiLanguageProvider>
     );
 
     fireEvent.click(screen.getByRole('button', { name: '退出' }));

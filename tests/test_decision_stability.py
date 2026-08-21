@@ -162,7 +162,7 @@ def test_keeps_buy_when_capital_flow_market_is_unsupported() -> None:
     # 买入保留：资金流缺失是"证据缺失"，只做元数据标注
     assert buy_result.decision_type == "buy"
     assert buy_result.operation_advice == "买入"
-    assert buy_result.confidence_level == "中"
+    assert buy_result.confidence_level == "Medium"
     assert buy_result.sentiment_score == 66
     stability = buy_result.dashboard["decision_stability"]
     assert stability["applied"] is False

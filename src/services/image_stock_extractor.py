@@ -34,25 +34,25 @@ class _LiteLLMPlaceholder:
 # Keep a patchable module attribute while still avoiding a hard import at module load.
 litellm = sys.modules.get("litellm") or _LiteLLMPlaceholder()
 
-EXTRACT_PROMPT = """请分析这张股票市场截图或图片，提取其中所有可见的股票代码及名称。
+EXTRACT_PROMPT = """Analyze this stock-market screenshot or image and extract every visible stock ticker/code and its name.
 
-重要：若图中同时显示股票名称和代码（如自选股列表、ETF 列表），必须同时提取两者，每个元素必须包含 code 和 name 字段。
+Important: if the image shows both stock names and codes (e.g. a watchlist or an ETF list), you must extract both; every item must include both the code and name fields.
 
-输出格式：仅返回有效的 JSON 数组，不要 markdown、不要解释。
-每个元素为对象：{"code":"股票代码","name":"股票名称","confidence":"high|medium|low"}
-- code: 必填，股票代码（A股6位、港股5位、美股1-5字母、ETF 如 159887/512880）
-- name: 若图中有名称则必填（如 贵州茅台、银行ETF、证券ETF），与代码一一对应；仅当图中确实无名称时可省略
-- confidence: 必填，识别置信度，high=确定、medium=较确定、low=不确定
+Output format: return ONLY a valid JSON array, no markdown, no explanation.
+Each element is an object: {"code":"stock code","name":"stock name","confidence":"high|medium|low"}
+- code: required, the stock code (A-share 6 digits, HK 5 digits, US 1-5 letters, ETFs such as 159887/512880)
+- name: required if a name is shown in the image (e.g. Kweichow Moutai, Bank ETF, Securities ETF), matched one-to-one with the code; omit only when the image truly shows no name
+- confidence: required, recognition confidence: high = certain, medium = fairly certain, low = uncertain
 
-示例（图中同时有名称和代码时）：
-- 个股：600519 贵州茅台、300750 宁德时代
-- 港股：00700 腾讯控股、09988 阿里巴巴
-- 美股：AAPL 苹果、TSLA 特斯拉
-- ETF：159887 银行ETF、512880 证券ETF、512000 券商ETF、512480 半导体ETF、515030 新能源车ETF
+Examples (when the image shows both name and code):
+- Individual stocks: 600519 Kweichow Moutai, 300750 CATL
+- HK stocks: 00700 Tencent Holdings, 09988 Alibaba
+- US stocks: AAPL Apple, TSLA Tesla
+- ETFs: 159887 Bank ETF, 512880 Securities ETF, 512000 Brokerage ETF, 512480 Semiconductor ETF, 515030 NEV ETF
 
-输出示例：[{"code":"600519","name":"贵州茅台","confidence":"high"},{"code":"159887","name":"银行ETF","confidence":"high"}]
+Example output: [{"code":"600519","name":"Kweichow Moutai","confidence":"high"},{"code":"159887","name":"Bank ETF","confidence":"high"}]
 
-禁止只返回代码数组如 ["159887","512880"]，必须使用对象格式。若未找到任何股票代码，返回：[]"""
+Never return a bare array of codes such as ["159887","512880"]; always use the object format. If no stock codes are found, return: []"""
 
 # Valid confidence values; invalid ones normalized to medium
 _VALID_CONFIDENCE = frozenset({"high", "medium", "low"})
@@ -76,17 +76,17 @@ _IMAGE_SIGNATURES = {
 def _verify_image_magic_bytes(image_bytes: bytes, mime_type: str) -> None:
     """Verify actual file content matches declared MIME type (rejects forged Content-Type)."""
     if len(image_bytes) < 12:
-        raise ValueError("图片文件过小或损坏")
+        raise ValueError("Image file is too small or corrupted")
     if mime_type not in _IMAGE_SIGNATURES:
-        raise ValueError(f"无法验证类型: {mime_type}")
+        raise ValueError(f"Unable to verify image type: {mime_type}")
     if mime_type == "image/webp":
         if image_bytes[:4] != b"RIFF" or image_bytes[8:12] != b"WEBP":
-            raise ValueError("文件内容与声明的类型 image/webp 不匹配，可能被篡改")
+            raise ValueError("File content does not match the declared type image/webp; it may have been tampered with")
         return
     for sig in _IMAGE_SIGNATURES[mime_type]:
         if image_bytes.startswith(sig):
             return
-    raise ValueError(f"文件内容与声明的类型 {mime_type} 不匹配，可能被篡改")
+    raise ValueError(f"File content does not match the declared type {mime_type}; it may have been tampered with")
 
 
 def _normalize_code(raw: str) -> Optional[str]:
@@ -204,7 +204,7 @@ def _parse_items_from_text(text: str) -> List[Tuple[str, Optional[str], str]]:
     # Fallback: legacy format (codes only)
     codes = _parse_codes_from_text(text)
     if not codes:
-        logger.info("[ImageExtractor] 无法解析为结构化 items，且 legacy code 提取为空")
+        logger.info("[ImageExtractor] Could not parse structured items and legacy code extraction returned nothing")
     return [(c, None, "medium") for c in codes]
 
 
@@ -273,9 +273,9 @@ def _call_litellm_vision(image_b64: str, mime_type: str, api_key: Optional[str] 
     cfg = get_config()
     model = _resolve_vision_model()
     if not model:
-        raise ValueError("未配置 Vision API。请设置 LITELLM_MODEL 或相关 API Key。")
+        raise ValueError("Vision API is not configured. Set LITELLM_MODEL or the relevant API key.")
     if route_has_hermes(getattr(cfg, "llm_model_list", []) or [], model):
-        raise ValueError("Hermes Vision 未验证：VISION_MODEL 不能选择包含 Hermes deployment 的 route。")
+        raise ValueError("Hermes Vision is unverified: VISION_MODEL cannot select a route that includes a Hermes deployment.")
 
     deployments = _matching_vision_deployments(model, cfg)
     keys = _get_api_keys_for_model(model, cfg)
@@ -364,10 +364,10 @@ def extract_stock_codes_from_image(
     """
     mime_type = (mime_type or "image/jpeg").strip().lower().split(";")[0].strip()
     if mime_type not in ALLOWED_MIME:
-        raise ValueError(f"不支持的图片类型: {mime_type}。允许: {list(ALLOWED_MIME)}")
+        raise ValueError(f"Unsupported image type: {mime_type}. Allowed: {list(ALLOWED_MIME)}")
 
     if not image_bytes:
-        raise ValueError("图片内容为空")
+        raise ValueError("Image content is empty")
 
     if len(image_bytes) > MAX_SIZE_BYTES:
         raise ValueError(f"Image too large (max {MAX_SIZE_BYTES // (1024 * 1024)}MB)")
@@ -386,7 +386,7 @@ def extract_stock_codes_from_image(
             logger.debug("[ImageExtractor] raw LLM response:\n%s", raw)
             items = _parse_items_from_text(raw)
             logger.info(
-                f"[ImageExtractor] {model} 提取 {len(items)} 个: "
+                f"[ImageExtractor] {model} extracted {len(items)} item(s): "
                 f"{[(i[0], i[1]) for i in items[:5]]}{'...' if len(items) > 5 else ''}"
             )
             return items, raw
@@ -394,9 +394,9 @@ def extract_stock_codes_from_image(
             last_error = e
             if attempt < 2:
                 delay = 2 ** attempt
-                logger.warning(f"[ImageExtractor] 尝试 {attempt + 1}/3 失败，{delay}s 后重试: {e}")
+                logger.warning(f"[ImageExtractor] Attempt {attempt + 1}/3 failed, retrying in {delay}s: {e}")
                 time.sleep(delay)
 
     raise ValueError(
-        f"Vision API 调用失败，请检查 API Key 与网络: {last_error}"
+        f"Vision API call failed; check the API key and network: {last_error}"
     ) from last_error

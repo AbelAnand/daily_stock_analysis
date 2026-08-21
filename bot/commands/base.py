@@ -133,4 +133,4 @@ class BotCommand(ABC):
 
     def get_help_text(self) -> str:
         """获取帮助文本"""
-        return f"**{self.name}** - {self.description}\n用法: `{self.usage}`"
+        return f"**{self.name}** - {self.description}\nUsage: `{self.usage}`"

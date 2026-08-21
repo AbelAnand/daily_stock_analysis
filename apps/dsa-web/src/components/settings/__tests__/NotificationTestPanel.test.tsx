@@ -49,9 +49,9 @@ describe('NotificationTestPanel', () => {
 
     expect(screen.getByRole('option', { name: 'ntfy' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Gotify' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: '钉钉' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('渠道'), { target: { value: 'custom' } });
-    fireEvent.click(screen.getByRole('button', { name: /发送测试/ }));
+    expect(screen.getByRole('option', { name: 'DingTalk' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'custom' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send test/ }));
 
     await waitFor(() => expect(testNotificationChannel).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'custom',
@@ -59,7 +59,7 @@ describe('NotificationTestPanel', () => {
       maskToken: '******',
       timeoutSeconds: 20,
     })));
-    expect(await screen.findByText('测试成功')).toBeInTheDocument();
+    expect(await screen.findByText('Test succeeded')).toBeInTheDocument();
     expect(screen.getByText('HTTP 200')).toBeInTheDocument();
     expect(screen.getByText('https://example.com/hook?token=***')).toBeInTheDocument();
   });
@@ -103,7 +103,7 @@ describe('NotificationTestPanel', () => {
       expect(contentInput).toHaveValue('This is a test notification from the DSA Web settings page.');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /发送测试|Send test/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Send test/ }));
     await waitFor(() => expect(testNotificationChannel).toHaveBeenCalledWith(expect.objectContaining({
       title: 'DSA notification test',
       content: 'This is a test notification from the DSA Web settings page.',
@@ -189,10 +189,10 @@ describe('NotificationTestPanel', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('渠道'), { target: { value: 'custom' } });
-    fireEvent.click(screen.getByRole('button', { name: /发送测试/ }));
+    fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'custom' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send test/ }));
 
-    expect(await screen.findByText('测试成功')).toBeInTheDocument();
+    expect(await screen.findByText('Test succeeded')).toBeInTheDocument();
     expect(screen.getByText(/部分成功/)).toBeInTheDocument();
     expect(screen.getAllByText('HTTP 500').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('HTTP 200')).toBeInTheDocument();
@@ -230,9 +230,9 @@ describe('NotificationTestPanel', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /发送测试/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Send test/ }));
 
-    expect(await screen.findByText('测试失败')).toBeInTheDocument();
+    expect(await screen.findByText('Test failed')).toBeInTheDocument();
     const timeoutEntries = screen.getAllByText('timeout');
     expect(timeoutEntries[0]).toBeInTheDocument();
     expect(screen.getByText('https://qyapi.example.com/cgi-bin/webhook/send?key=***')).toBeInTheDocument();

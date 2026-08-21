@@ -180,9 +180,9 @@ def _build_dsa_summary(pick: Pick, context: dict[str, Any], news: list[dict[str,
     price = quote.get("price") if quote else pick.price
     change_pct = quote.get("change_pct") if quote else pick.change_pct
     if price not in (None, ""):
-        text = f"DSA行情: 现价 {price}"
+        text = f"DSA quote: last price {price}"
         if change_pct not in (None, ""):
-            text += f", 涨跌幅 {change_pct}%"
+            text += f", change {change_pct}%"
         parts.append(text)
 
     fundamentals = context.get("fundamentals")
@@ -194,7 +194,7 @@ def _build_dsa_summary(pick: Pick, context: dict[str, Any], news: list[dict[str,
             if str(value).lower() in {"available", "partial"}
         ]
         if available:
-            parts.append(f"DSA基本面覆盖: {', '.join(available[:4])}")
+            parts.append(f"DSA fundamentals coverage: {', '.join(available[:4])}")
 
     titles = [
         str(item.get("title") or "").strip()
@@ -202,5 +202,5 @@ def _build_dsa_summary(pick: Pick, context: dict[str, Any], news: list[dict[str,
         if isinstance(item.get("title"), str) and item.get("title")
     ]
     if titles:
-        parts.append(f"DSA新闻: {'; '.join(titles[:2])}")
+        parts.append(f"DSA news: {'; '.join(titles[:2])}")
     return "; ".join(parts)

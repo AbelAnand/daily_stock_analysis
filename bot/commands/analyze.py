@@ -39,16 +39,16 @@ class AnalyzeCommand(BotCommand):
     
     @property
     def description(self) -> str:
-        return "分析指定股票"
+        return "Analyze a stock"
     
     @property
     def usage(self) -> str:
-        return "/analyze <股票代码> [full]"
+        return "/analyze <stock_code> [full]"
     
     def validate_args(self, args: List[str]) -> Optional[str]:
         """验证参数"""
         if not args:
-            return "请输入股票代码"
+            return "Please provide a stock code"
         
         code = args[0].upper()
 
@@ -61,7 +61,7 @@ class AnalyzeCommand(BotCommand):
         is_us_stock = re.match(r'^[A-Z]{1,5}(\.[A-Z]{1,2})?$', code)
 
         if not (is_a_stock or is_hk_stock or is_us_stock):
-            return f"无效的股票代码: {code}（A股6位数字 / 港股HK+5位数字 / 美股1-5个字母）"
+            return f"Invalid stock code: {code} (A-share: 6 digits / HK: HK + 5 digits / US: 1-5 letters)"
         
         return None
     
@@ -73,7 +73,7 @@ class AnalyzeCommand(BotCommand):
         report_type = "simple"
         if len(args) > 1 and args[1].lower() in ["full", "完整", "详细"]:
             report_type = "full"
-        logger.info(f"[AnalyzeCommand] 分析股票: {code}, 报告类型: {report_type}")
+        logger.info(f"[AnalyzeCommand] Analyzing stock: {code}, report type: {report_type}")
         
         try:
             # 调用分析服务
@@ -92,16 +92,16 @@ class AnalyzeCommand(BotCommand):
             if result.get("success"):
                 task_id = result.get("task_id", "")
                 return BotResponse.markdown_response(
-                    f"✅ **分析任务已提交**\n\n"
-                    f"• 股票代码: `{code}`\n"
-                    f"• 报告类型: {ReportType.from_str(report_type).display_name}\n"
-                    f"• 任务 ID: `{task_id[:20]}...`\n\n"
-                    f"分析完成后将自动推送结果。"
+                    f"✅ **Analysis task submitted**\n\n"
+                    f"• Stock code: `{code}`\n"
+                    f"• Report type: {ReportType.from_str(report_type).display_name}\n"
+                    f"• Task ID: `{task_id[:20]}...`\n\n"
+                    f"Results will be sent automatically when the analysis completes."
                 )
             else:
-                error = result.get("error", "未知错误")
-                return BotResponse.error_response(f"提交分析任务失败: {error}")
+                error = result.get("error", "Unknown error")
+                return BotResponse.error_response(f"Failed to submit analysis task: {error}")
                 
         except Exception as e:
-            logger.error(f"[AnalyzeCommand] 执行失败: {e}")
-            return BotResponse.error_response(f"分析失败: {str(e)[:100]}")
+            logger.error(f"[AnalyzeCommand] Execution failed: {e}")
+            return BotResponse.error_response(f"Analysis failed: {str(e)[:100]}")

@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import { Input } from '../Input';
 
 describe('Input', () => {
@@ -41,7 +43,12 @@ describe('Input', () => {
   });
 
   it('toggles password visibility in uncontrolled mode', () => {
-    render(<Input label="密码" type="password" allowTogglePassword />);
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+    render(
+      <UiLanguageProvider>
+        <Input label="密码" type="password" allowTogglePassword />
+      </UiLanguageProvider>
+    );
 
     const input = screen.getByLabelText('密码');
     expect(input).toHaveAttribute('type', 'password');
@@ -53,14 +60,17 @@ describe('Input', () => {
   it('supports controlled password visibility', () => {
     const onPasswordVisibleChange = vi.fn();
 
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
     render(
-      <Input
-        label="API Key"
-        type="password"
-        allowTogglePassword
-        passwordVisible
-        onPasswordVisibleChange={onPasswordVisibleChange}
-      />
+      <UiLanguageProvider>
+        <Input
+          label="API Key"
+          type="password"
+          allowTogglePassword
+          passwordVisible
+          onPasswordVisibleChange={onPasswordVisibleChange}
+        />
+      </UiLanguageProvider>
     );
 
     expect(screen.getByLabelText('API Key')).toHaveAttribute('type', 'text');
@@ -70,7 +80,12 @@ describe('Input', () => {
   });
 
   it('supports the login appearance without affecting password toggle behavior', () => {
-    render(<Input label="登录密码" type="password" allowTogglePassword appearance="login" />);
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+    render(
+      <UiLanguageProvider>
+        <Input label="登录密码" type="password" allowTogglePassword appearance="login" />
+      </UiLanguageProvider>
+    );
 
     const input = screen.getByLabelText('登录密码');
     expect(input).toHaveAttribute('data-appearance', 'login');

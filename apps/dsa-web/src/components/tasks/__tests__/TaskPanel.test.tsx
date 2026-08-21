@@ -1,7 +1,18 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskPanel } from '../TaskPanel';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import type { TaskInfo } from '../../../types/analysis';
+
+function withLanguage(ui: ReactElement): ReactElement {
+  return <UiLanguageProvider>{ui}</UiLanguageProvider>;
+}
+
+function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(withLanguage(ui), options);
+}
 
 const baseTask: TaskInfo = {
   taskId: 'task-1',
@@ -15,6 +26,10 @@ const baseTask: TaskInfo = {
 };
 
 describe('TaskPanel', () => {
+  beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+  });
+
   it('renders requested analysis phase badges for active tasks', () => {
     render(
       <TaskPanel

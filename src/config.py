@@ -1060,7 +1060,7 @@ class Config:
     
     # 邮件配置（只需邮箱和授权码，SMTP 自动识别）
     email_sender: Optional[str] = None  # 发件人邮箱
-    email_sender_name: str = "daily_stock_analysis股票分析助手"  # 发件人显示名称
+    email_sender_name: str = "daily_stock_analysis Stock Analysis Assistant"  # 发件人显示名称
     email_password: Optional[str] = None  # 邮箱密码/授权码
     email_receivers: List[str] = field(default_factory=list)  # 收件人列表（留空则发给自己）
 
@@ -1253,7 +1253,7 @@ class Config:
     portfolio_fx_update_enabled: bool = True
 
     # Discord 机器人状态
-    discord_bot_status: str = "A股智能分析 | /help"
+    discord_bot_status: str = "Stock Analysis Assistant | /help"
 
     # === 流控配置（防封禁关键参数）===
     # Akshare 请求间隔范围（秒）
@@ -1712,7 +1712,7 @@ class Config:
                 invalid_searxng_urls.append(u)
         if invalid_searxng_urls:
             logger.warning(
-                "SEARXNG_BASE_URLS 中存在无效 URL，已忽略: %s",
+                "Invalid URL(s) in SEARXNG_BASE_URLS ignored: %s",
                 ", ".join(invalid_searxng_urls[:3]),
             )
         searxng_public_instances_enabled = parse_env_bool(
@@ -2031,7 +2031,7 @@ class Config:
             telegram_chat_id=os.getenv('TELEGRAM_CHAT_ID'),
             telegram_message_thread_id=os.getenv('TELEGRAM_MESSAGE_THREAD_ID'),
             email_sender=os.getenv('EMAIL_SENDER'),
-            email_sender_name=os.getenv('EMAIL_SENDER_NAME', 'daily_stock_analysis股票分析助手'),
+            email_sender_name=os.getenv('EMAIL_SENDER_NAME', 'daily_stock_analysis Stock Analysis Assistant'),
             email_password=os.getenv('EMAIL_PASSWORD'),
             email_receivers=[r.strip() for r in os.getenv('EMAIL_RECEIVERS', '').split(',') if r.strip()],
             stock_email_groups=cls._parse_stock_email_groups(),
@@ -2210,7 +2210,7 @@ class Config:
             # Telegram
             telegram_webhook_secret=os.getenv('TELEGRAM_WEBHOOK_SECRET'),
             # Discord 机器人扩展配置
-            discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'A股智能分析 | /help'),
+            discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'Stock Analysis Assistant | /help'),
             # 实时行情增强数据配置
             enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
             enable_realtime_technical_indicators=os.getenv(
@@ -2909,7 +2909,7 @@ class Config:
             return normalized
 
         logging.getLogger(__name__).warning(
-            f"MARKET_REVIEW_REGION 配置值 '{value}' 无效，已回退为默认值 'cn'（合法值：cn / hk / us / jp / kr / both；支持逗号分隔有效值）"
+            f"Invalid MARKET_REVIEW_REGION value '{value}'; falling back to default 'cn' (valid: cn / hk / us / jp / kr / both; comma-separated values are supported)"
         )
         return 'cn'
 
@@ -2921,7 +2921,7 @@ class Config:
         if v in ('green_up', 'red_up'):
             return v
         logging.getLogger(__name__).warning(
-            "MARKET_REVIEW_COLOR_SCHEME 配置值 '%s' 无效，已回退为默认值 'green_up'（合法值：green_up / red_up）",
+            "Invalid MARKET_REVIEW_COLOR_SCHEME value '%s'; falling back to default 'green_up' (valid: green_up / red_up)",
             value,
         )
         return 'green_up'
@@ -3081,7 +3081,7 @@ class Config:
         if not self.stock_list:
             issues.append(ConfigIssue(
                 severity="error",
-                message="未配置 STOCK_LIST。请设置至少一个股票代码，例如：600519,hk00700,AAPL。",
+                message="STOCK_LIST is not configured. Set at least one stock code, e.g. 600519,hk00700,AAPL.",
                 field="STOCK_LIST",
             ))
         elif self.stock_email_groups:
@@ -3108,10 +3108,10 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="warning",
                     message=(
-                        "检测到 STOCK_GROUP_N 中存在未包含在 STOCK_LIST 内的股票："
+                        "STOCK_GROUP_N contains stocks that are not in STOCK_LIST: "
                         f"{', '.join(missing_group_stocks[:6])}。"
-                        "STOCK_GROUP_N 仅用于邮件路由，不会扩大分析范围；"
-                        "请先将这些股票加入 STOCK_LIST。"
+                        " STOCK_GROUP_N is only used for email routing and does not extend the analysis scope; "
+                        "add these stocks to STOCK_LIST first."
                     ),
                     field="STOCK_GROUP_N",
                 ))
@@ -3120,7 +3120,7 @@ class Config:
         if not self.tushare_token:
             issues.append(ConfigIssue(
                 severity="info",
-                message="未配置 Tushare Token，将使用其他数据源",
+                message="Tushare token is not configured; other data sources will be used",
                 field="TUSHARE_TOKEN",
             ))
 
@@ -3135,9 +3135,9 @@ class Config:
             issues.append(ConfigIssue(
                 severity="error",
                 message=(
-                    "GENERATION_BACKEND 当前支持 "
-                    f"{'、'.join(sorted(SUPPORTED_GENERATION_BACKENDS))}。"
-                    f"已配置的值为：{generation_backend}。"
+                    "GENERATION_BACKEND currently supports "
+                    f"{', '.join(sorted(SUPPORTED_GENERATION_BACKENDS))}. "
+                    f"Configured value: {generation_backend}."
                 ),
                 field="GENERATION_BACKEND",
             ))
@@ -3147,21 +3147,21 @@ class Config:
             issues.append(ConfigIssue(
                 severity="error",
                 message=(
-                    "GENERATION_FALLBACK_BACKEND 当前支持 litellm、与 primary 相同的 no-op 值，或空字符串。"
-                    f"已配置的值为：{generation_fallback_backend}。"
+                    "GENERATION_FALLBACK_BACKEND currently supports litellm, the same value as the primary backend (no-op), or an empty string. "
+                    f"Configured value: {generation_fallback_backend}."
                 ),
                 field="GENERATION_FALLBACK_BACKEND",
             ))
         if agent_generation_backend not in SUPPORTED_AGENT_GENERATION_BACKENDS:
-            agent_ui_backends = "、".join(sorted(SUPPORTED_AGENT_UI_BACKENDS))
-            local_toolless_backends = "、".join(sorted(GENERATION_ONLY_BACKEND_IDS))
+            agent_ui_backends = ", ".join(sorted(SUPPORTED_AGENT_UI_BACKENDS))
+            local_toolless_backends = ", ".join(sorted(GENERATION_ONLY_BACKEND_IDS))
             issues.append(ConfigIssue(
                 severity="error",
                 message=(
-                    f"AGENT_GENERATION_BACKEND 当前支持 {agent_ui_backends}；"
-                    f"local CLI backend（{local_toolless_backends}）仅作为显式 unsupported diagnostic 保留，"
-                    "不支持 Agent 工具调用。"
-                    f"已配置的值为：{agent_generation_backend}。"
+                    f"AGENT_GENERATION_BACKEND currently supports {agent_ui_backends}; "
+                    f"local CLI backends ({local_toolless_backends}) are kept only as an explicit unsupported diagnostic "
+                    "and do not support Agent tool calls. "
+                    f"Configured value: {agent_generation_backend}."
                 ),
                 field="AGENT_GENERATION_BACKEND",
             ))
@@ -3169,8 +3169,8 @@ class Config:
             issues.append(ConfigIssue(
                 severity="error",
                 message=(
-                    "AGENT_BACKEND 当前支持 auto、litellm、codex_app_server。"
-                    f"已配置的值为：{agent_backend}。"
+                    "AGENT_BACKEND currently supports auto, litellm, codex_app_server. "
+                    f"Configured value: {agent_backend}."
                 ),
                 field="AGENT_BACKEND",
                 code="capability_unsupported",
@@ -3178,7 +3178,7 @@ class Config:
         if agent_backend == "codex_app_server" and self.agent_arch != "single":
             issues.append(ConfigIssue(
                 severity="error",
-                message="Codex 本地 Agent 当前只支持单 Agent 问股，请将 AGENT_ARCH 设为 single。",
+                message="The local Codex Agent currently only supports single-agent stock Q&A; set AGENT_ARCH to single.",
                 field="AGENT_ARCH",
                 code="unsupported_agent_arch",
             ))
@@ -3195,8 +3195,8 @@ class Config:
             issues.append(ConfigIssue(
                 severity="error",
                 message=(
-                    f"{local_model_prefix} 是 GENERATION_BACKEND，不是 LiteLLM provider。"
-                    f"请不要使用 LITELLM_MODEL={local_model_prefix}/...。"
+                    f"{local_model_prefix} is a GENERATION_BACKEND, not a LiteLLM provider. "
+                    f"Do not use LITELLM_MODEL={local_model_prefix}/...."
                 ),
                 field="LITELLM_MODEL",
             ))
@@ -3213,9 +3213,9 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="error",
                     message=(
-                        "OPENCODE_CLI_MODEL 是可选的 OpenCode 模型覆盖值。"
-                        "配置时会作为单个 --model 参数传给 OpenCode，不能包含空白或 shell 元字符；"
-                        "不配置时 DSA 将使用 OpenCode 自身默认模型。"
+                        "OPENCODE_CLI_MODEL is an optional OpenCode model override. "
+                        "When set it is passed to OpenCode as a single --model argument and must not contain whitespace or shell metacharacters; "
+                        "when unset DSA uses OpenCode's own default model."
                     ),
                     field="OPENCODE_CLI_MODEL",
                 ))
@@ -3239,8 +3239,8 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="error",
                     message=(
-                        "已配置 LITELLM_CONFIG，但未解析出可用模型。"
-                        "请检查 YAML 中的 model_list、litellm_params 和环境变量引用。"
+                        "LITELLM_CONFIG is set but no usable models were parsed from it. "
+                        "Check model_list, litellm_params and environment variable references in the YAML."
                     ),
                     field="LITELLM_CONFIG",
                 ))
@@ -3248,9 +3248,9 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="error",
                     message=(
-                        "已配置 LLM_CHANNELS，但未解析出可用模型渠道。"
-                        "请检查对应 LLM_<CHANNEL>_API_KEY(S)、"
-                        "LLM_<CHANNEL>_MODELS、LLM_<CHANNEL>_PROTOCOL 或 Base URL。"
+                        "LLM_CHANNELS is set but no usable model channels were parsed. "
+                        "Check the corresponding LLM_<CHANNEL>_API_KEY(S), "
+                        "LLM_<CHANNEL>_MODELS, LLM_<CHANNEL>_PROTOCOL or base URL."
                     ),
                     field="LLM_CHANNELS",
                 ))
@@ -3258,10 +3258,10 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="error",
                     message=(
-                        "未配置任何可用的 AI 模型接入。请至少配置 ANSPIRE_API_KEYS、"
-                        "AIHUBMIX_KEY、GEMINI_API_KEY、ANTHROPIC_API_KEY、"
-                        "OPENAI_API_KEY 或 DEEPSEEK_API_KEY 中的一个，或配置 "
-                        "LITELLM_CONFIG / LLM_CHANNELS 可用模型渠道。"
+                        "No usable AI model access is configured. Set at least one of ANSPIRE_API_KEYS, "
+                        "AIHUBMIX_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY, "
+                        "OPENAI_API_KEY or DEEPSEEK_API_KEY, or configure "
+                        "usable model channels via LITELLM_CONFIG / LLM_CHANNELS."
                     ),
                     field="LITELLM_CONFIG",
                 ))
@@ -3269,8 +3269,8 @@ class Config:
             issues.append(ConfigIssue(
                 severity="info",
                 message=(
-                    "尚未明确指定主模型，系统将自动从可用 API Key 推断。"
-                    "建议尽早配置主模型（格式如 gemini/gemini-3.1-pro-preview）"
+                    "No primary model is explicitly set; it will be inferred from available API keys. "
+                    "Configure a primary model soon (e.g. gemini/gemini-3.1-pro-preview)"
                 ),
                 field="LITELLM_MODEL",
             ))
@@ -3303,7 +3303,7 @@ class Config:
                         severity="error",
                         message=(
                             "Hermes/non-Hermes mixed generation routes are not supported in Phase 3. "
-                            "请选择纯 Hermes 或纯非 Hermes 主模型。"
+                            "Choose a pure Hermes or pure non-Hermes primary model."
                         ),
                         field="LITELLM_MODEL",
                         code="mixed_hermes_route_unsupported",
@@ -3316,8 +3316,8 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="error",
                     message=(
-                        "已配置的主模型未出现在当前渠道或高级模型路由配置中。"
-                        f" 当前可用模型：{', '.join(available_router_models[:6])}"
+                        "The configured primary model is not declared in the current channels or advanced model routing config."
+                        f" Available models: {', '.join(available_router_models[:6])}"
                     ),
                     field="LITELLM_MODEL",
                 ))
@@ -3328,8 +3328,8 @@ class Config:
                     issues.append(ConfigIssue(
                         severity="error",
                         message=(
-                            "Hermes-only route 不能作为 Agent 主模型。"
-                            "请选择包含非 Hermes deployment 的 Agent-safe route。"
+                            "A Hermes-only route cannot be used as the Agent primary model. "
+                            "Choose an Agent-safe route that includes a non-Hermes deployment."
                         ),
                         field="AGENT_LITELLM_MODEL",
                         code="explicit_agent_model_no_safe_deployment",
@@ -3344,8 +3344,8 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="error",
                     message=(
-                        "已配置的 Agent 主模型未出现在当前渠道或高级模型路由配置中。"
-                        f" 当前可用模型：{', '.join(available_router_models[:6])}"
+                        "The configured Agent primary model is not declared in the current channels or advanced model routing config."
+                        f" Available models: {', '.join(available_router_models[:6])}"
                     ),
                     field="AGENT_LITELLM_MODEL",
                 ))
@@ -3374,7 +3374,7 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="warning",
                     message=(
-                        "备选模型中包含未在当前渠道或高级模型路由配置中声明的模型："
+                        "Fallback models include models not declared in the current channels or advanced model routing config: "
                         f"{', '.join(invalid_fallbacks[:3])}"
                     ),
                     field="LITELLM_FALLBACK_MODELS",
@@ -3388,8 +3388,8 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="warning",
                     message=(
-                        "VISION_MODEL 未出现在当前渠道声明中。"
-                        f" 当前可用模型：{', '.join(available_router_models[:6])}"
+                        "VISION_MODEL is not declared in the current channels."
+                        f" Available models: {', '.join(available_router_models[:6])}"
                     ),
                     field="VISION_MODEL",
                 ))
@@ -3397,7 +3397,7 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="error",
                     message=(
-                        "Hermes Phase 3 未验证 Vision 能力，VISION_MODEL 不能选择包含 Hermes deployment 的 route。"
+                        "Hermes Phase 3 has not validated Vision capability; VISION_MODEL cannot use a route that includes a Hermes deployment."
                     ),
                     field="VISION_MODEL",
                     code="hermes_vision_unsupported",
@@ -3410,8 +3410,8 @@ class Config:
             issues.append(ConfigIssue(
                 severity="error",
                 message=(
-                    "已配置 Agent 主模型，但未找到可用的运行时来源"
-                    "（启用渠道或匹配的 API Key）。"
+                    "An Agent primary model is configured but no usable runtime source was found "
+                    "(an enabled channel or a matching API key)."
                 ),
                 field="AGENT_LITELLM_MODEL",
             ))
@@ -3420,7 +3420,7 @@ class Config:
         if not self.has_search_capability_enabled():
             issues.append(ConfigIssue(
                 severity="info",
-                message="未配置搜索引擎能力 (Bocha/MiniMax/Tavily/Brave/SerpAPI/SearXNG)，新闻搜索功能将不可用",
+                message="No search engine capability configured (Bocha/MiniMax/Tavily/Brave/SerpAPI/SearXNG); news search will be unavailable",
                 field="BOCHA_API_KEYS",
             ))
 
@@ -3456,7 +3456,7 @@ class Config:
         if not has_notification:
             issues.append(ConfigIssue(
                 severity="warning",
-                message="未配置通知渠道，将不发送推送通知",
+                message="No notification channel configured; push notifications will not be sent",
                 field="WECHAT_WEBHOOK_URL",
             ))
 
@@ -3465,7 +3465,7 @@ class Config:
         if has_telegram_token != has_telegram_chat_id:
             issues.append(ConfigIssue(
                 severity="error",
-                message="Telegram 通知配置不完整：TELEGRAM_BOT_TOKEN 和 TELEGRAM_CHAT_ID 必须同时配置。",
+                message="Telegram notification config is incomplete: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must both be set.",
                 field="TELEGRAM_CHAT_ID" if has_telegram_token else "TELEGRAM_BOT_TOKEN",
             ))
 
@@ -3474,7 +3474,7 @@ class Config:
         if has_email_sender != has_email_password:
             issues.append(ConfigIssue(
                 severity="error",
-                message="邮件通知配置不完整：EMAIL_SENDER 和 EMAIL_PASSWORD 必须同时配置。",
+                message="Email notification config is incomplete: EMAIL_SENDER and EMAIL_PASSWORD must both be set.",
                 field="EMAIL_PASSWORD" if has_email_sender else "EMAIL_SENDER",
             ))
 
@@ -3487,7 +3487,7 @@ class Config:
                 return
             issues.append(ConfigIssue(
                 severity="warning",
-                message=f"{field} 看起来不是有效 URL，请确认是否以 http:// 或 https:// 开头。",
+                message=f"{field} does not look like a valid URL; make sure it starts with http:// or https://.",
                 field=field,
             ))
 
@@ -3507,14 +3507,14 @@ class Config:
         if self.ntfy_url and not _has_ntfy_topic_endpoint(self.ntfy_url):
             issues.append(ConfigIssue(
                 severity="error",
-                message="NTFY_URL 必须包含 topic path，例如 https://ntfy.sh/my-topic",
+                message="NTFY_URL must include a topic path, e.g. https://ntfy.sh/my-topic",
                 field="NTFY_URL",
             ))
 
         if self.gotify_url and not _has_gotify_base_url(self.gotify_url):
             issues.append(ConfigIssue(
                 severity="error",
-                message="GOTIFY_URL 必须是 Gotify server base URL，不包含 /message，例如 https://gotify.example",
+                message="GOTIFY_URL must be the Gotify server base URL without /message, e.g. https://gotify.example",
                 field="GOTIFY_URL",
             ))
 
@@ -3525,7 +3525,7 @@ class Config:
         ):
             issues.append(ConfigIssue(
                 severity="warning",
-                message="已配置 GOTIFY_URL，但缺少 GOTIFY_TOKEN，Gotify 渠道不会启用",
+                message="GOTIFY_URL is set but GOTIFY_TOKEN is missing; the Gotify channel will not be enabled",
                 field="GOTIFY_TOKEN",
             ))
 
@@ -3535,7 +3535,7 @@ class Config:
             except ValueError as exc:
                 issues.append(ConfigIssue(
                     severity="error",
-                    message=f"通知静默时段配置无效：{exc}",
+                    message=f"Invalid notification quiet hours config: {exc}",
                     field="NOTIFICATION_QUIET_HOURS",
                 ))
 
@@ -3545,7 +3545,7 @@ class Config:
             except ValueError as exc:
                 issues.append(ConfigIssue(
                     severity="error",
-                    message=f"通知时区配置无效：{exc}",
+                    message=f"Invalid notification timezone config: {exc}",
                     field="NOTIFICATION_TIMEZONE",
                 ))
 
@@ -3553,7 +3553,7 @@ class Config:
             issues.append(ConfigIssue(
                 severity="error",
                 message=(
-                    "通知最低级别配置无效，允许值："
+                    "Invalid notification minimum severity; allowed values: "
                     f"{', '.join(NOTIFICATION_SEVERITIES)}"
                 ),
                 field="NOTIFICATION_MIN_SEVERITY",
@@ -3563,8 +3563,8 @@ class Config:
             issues.append(ConfigIssue(
                 severity="warning",
                 message=(
-                    "NOTIFICATION_DAILY_DIGEST_ENABLED 当前为预留配置；"
-                    "P4 不会发送每日摘要或持久化摘要内容。"
+                    "NOTIFICATION_DAILY_DIGEST_ENABLED is currently a reserved setting; "
+                    "P4 does not send or persist daily digests."
                 ),
                 field="NOTIFICATION_DAILY_DIGEST_ENABLED",
             ))
@@ -3589,16 +3589,16 @@ class Config:
         ):
             suggestions = []
             if has_feishu_app_credentials_complete:
-                suggestions.append("配置 FEISHU_CHAT_ID 开启 App Bot 主动推送")
-                suggestions.append("开启 FEISHU_STREAM_ENABLED 使用应用机器人事件订阅")
+                suggestions.append("set FEISHU_CHAT_ID to enable App Bot push")
+                suggestions.append("enable FEISHU_STREAM_ENABLED to use App Bot event subscription")
             else:
-                suggestions.append("补齐 FEISHU_APP_ID / FEISHU_APP_SECRET 后配置 FEISHU_CHAT_ID 开启 App Bot 主动推送")
-            suggestions.append("配置 FEISHU_WEBHOOK_URL 使用自定义机器人 Webhook 推送")
+                suggestions.append("complete FEISHU_APP_ID / FEISHU_APP_SECRET and then set FEISHU_CHAT_ID to enable App Bot push")
+            suggestions.append("set FEISHU_WEBHOOK_URL to push via a custom bot webhook")
             issues.append(ConfigIssue(
                 severity="warning",
-                message="仅配置 FEISHU_APP_ID / FEISHU_APP_SECRET 不会开启飞书静态通知。"
-                        + " 请选择以下方式之一："
-                        + "；".join(suggestions) + "。",
+                message="Setting only FEISHU_APP_ID / FEISHU_APP_SECRET does not enable Feishu static notifications."
+                        + " Choose one of the following: "
+                        + "; ".join(suggestions) + ".",
                 field="FEISHU_CHAT_ID",
             ))
 
@@ -3607,8 +3607,8 @@ class Config:
             issues.append(ConfigIssue(
                 severity="info",
                 message=(
-                    "OPENAI_VISION_MODEL 已废弃，请改用 VISION_MODEL。"
-                    "当前值已自动迁移，建议更新配置文件以消除此提示。"
+                    "OPENAI_VISION_MODEL is deprecated; use VISION_MODEL instead. "
+                    "The current value was migrated automatically; update your config file to silence this hint."
                 ),
                 field="OPENAI_VISION_MODEL",
             ))
@@ -3653,9 +3653,9 @@ class Config:
                 issues.append(ConfigIssue(
                     severity="warning",
                     message=(
-                        "VISION_MODEL 已配置，但未找到可用的 Vision API Key "
-                        f"（已检查：{', '.join(_checked)}）。"
-                        "图片股票代码提取功能将不可用，请配置对应的 API Key。"
+                        "VISION_MODEL is set but no usable Vision API key was found "
+                        f"(checked: {', '.join(_checked)}). "
+                        "Image stock-code extraction will be unavailable; configure the matching API key."
                     ),
                     field="VISION_MODEL",
                 ))
@@ -3735,15 +3735,15 @@ def extra_litellm_params(model: str, config: Config) -> Dict[str, Any]:
 if __name__ == "__main__":
     # 测试配置加载
     config = get_config()
-    print("=== 配置加载测试 ===")
-    print(f"自选股列表: {config.stock_list}")
-    print(f"数据库路径: {config.database_path}")
-    print(f"最大并发数: {config.max_workers}")
-    print(f"调试模式: {config.debug}")
+    print("=== Config load test ===")
+    print(f"Stock list: {config.stock_list}")
+    print(f"Database path: {config.database_path}")
+    print(f"Max workers: {config.max_workers}")
+    print(f"Debug mode: {config.debug}")
     
     # 验证配置
     warnings = config.validate()
     if warnings:
-        print("\n配置验证结果:")
+        print("\nConfig validation results:")
         for w in warnings:
             print(f"  - {w}")

@@ -17,6 +17,7 @@ A股自选股智能分析系统 - 通知层
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -43,6 +44,7 @@ from src.report_language import (
     get_signal_level,
     get_chip_unavailable_reason,
     is_chip_structure_unavailable,
+    localize_bias_status,
     localize_chip_health,
     localize_conflict_severity,
     localize_consensus_level,
@@ -111,6 +113,266 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Locale-aware formatting helpers (report_language: zh keeps 亿/万 units,
+# everything else renders English K/M/B units and currency symbols).
+# ---------------------------------------------------------------------------
+_CURRENCY_SYMBOL_EN = {
+    "USD": "$",
+    "HKD": "HK$",
+    "CNY": "¥",
+    "RMB": "¥",
+    "CNH": "¥",
+    "TWD": "NT$",
+    "JPY": "JP¥",
+    "EUR": "€",
+    "GBP": "£",
+}
+
+_CURRENCY_SUFFIX_ZH = {
+    "USD": "美元",
+    "HKD": "港元",
+    "CNY": "元",
+    "RMB": "元",
+    "CNH": "元",
+    "TWD": "新台币",
+}
+
+_PUNCT = {
+    "zh": {"colon": "：", "lparen": "（", "rparen": "）", "list_sep": "、"},
+    "en": {"colon": ": ", "lparen": " (", "rparen": ")", "list_sep": ", "},
+    "ko": {"colon": ": ", "lparen": " (", "rparen": ")", "list_sep": ", "},
+}
+
+# Local label tables (not present in src.report_language); keep small.
+_VOLUME_STATUS_LABELS_EN = {
+    "放量": "surge",
+    "明显放量": "strong surge",
+    "温和放量": "mild surge",
+    "缩量": "shrinking",
+    "明显缩量": "sharply shrinking",
+    "平量": "flat",
+    "正常": "normal",
+}
+
+_SCORECARD_LABELS = {
+    "zh": {
+        "title": "📊 战绩（近{days}个交易日窗口）",
+        "accuracy": "- 严格准确率 {strict} | 传统胜率 {win}",
+        "n": "（n={n}）",
+        "brier_samples": "（样本 {n}）",
+        "direction": "- 分方向命中: ",
+        "up": "买", "not_down": "持", "flat": "观", "down": "卖",
+    },
+    "en": {
+        "title": "📊 Track Record (last {days} trading days)",
+        "accuracy": "- Strict accuracy {strict} | Win rate {win}",
+        "n": " (n={n})",
+        "brier_samples": " (samples {n})",
+        "direction": "- Hit rate by direction: ",
+        "up": "Buy", "not_down": "Hold", "flat": "Watch", "down": "Sell",
+    },
+    "ko": {
+        "title": "📊 성과 기록 (최근 {days} 거래일)",
+        "accuracy": "- 엄격 정확도 {strict} | 승률 {win}",
+        "n": " (n={n})",
+        "brier_samples": " (표본 {n})",
+        "direction": "- 방향별 적중률: ",
+        "up": "매수", "not_down": "보유", "flat": "관망", "down": "매도",
+    },
+}
+
+# Short zh tokens the LLM may still emit in dashboard fields (time sensitivity,
+# phase action window, position size); mapped for en so stored rows render clean.
+_SHORT_TOKEN_LABELS_EN = {
+    "本周内": "This week",
+    "本月内": "This month",
+    "今日": "Today",
+    "今天": "Today",
+    "明日": "Tomorrow",
+    "1-3日": "1-3 days",
+    "1-2周": "1-2 weeks",
+    "短期": "Short term",
+    "中期": "Medium term",
+    "长期": "Long term",
+    "盘中跟踪": "Intraday tracking",
+    "盘中": "Intraday",
+    "盘后复盘": "Post-close review",
+    "盘后": "After close",
+    "盘前": "Pre-market",
+    "收盘前": "Before close",
+    "观察": "Watch",
+    "观望": "Wait",
+    "持有": "Hold",
+    "持仓观察": "Hold and watch",
+    "买入": "Buy",
+    "加仓": "Add",
+    "减仓": "Reduce",
+    "卖出": "Sell",
+    "清仓": "Exit",
+    "回避": "Avoid",
+}
+
+_ZH_POSITION_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[-~～至到]\s*(\d+(?:\.\d+)?)\s*成|(\d+(?:\.\d+)?)\s*成")
+
+_ZH_UNIT_VALUE_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d+)?)\s*(亿|万)?\s*(股|手|元|美元|港元|新台币)?\s*$")
+
+
+def _lang_key(language: Optional[str]) -> str:
+    return normalize_report_language(language) if language else "zh"
+
+
+def _punct(language: Optional[str]) -> Dict[str, str]:
+    return _PUNCT.get(_lang_key(language), _PUNCT["en"])
+
+
+def _na(value: Any) -> Any:
+    """Render ``None``/blank as N/A so LLM nulls never print as the literal ``None``."""
+    if value is None:
+        return "N/A"
+    if isinstance(value, str) and not value.strip():
+        return "N/A"
+    return value
+
+
+def _fmt_pct_cell(value: Any) -> str:
+    """``12.3`` -> ``12.3%``; None/blank -> ``N/A`` (no dangling ``%``)."""
+    value = _na(value)
+    if value == "N/A":
+        return value
+    text = str(value).strip()
+    return text if text.endswith("%") else f"{text}%"
+
+
+def _compact_number_en(abs_value: float, decimals: int = 2) -> str:
+    if abs_value >= 1e12:
+        return f"{abs_value / 1e12:.{decimals}f}T"
+    if abs_value >= 1e9:
+        return f"{abs_value / 1e9:.{decimals}f}B"
+    if abs_value >= 1e6:
+        return f"{abs_value / 1e6:.{decimals}f}M"
+    if abs_value >= 1e3:
+        return f"{abs_value / 1e3:.{decimals}f}K"
+    return f"{abs_value:.0f}"
+
+
+def format_amount_localized(value: Any, currency: Optional[str] = None, language: Optional[str] = None) -> str:
+    """Format a monetary amount for the report language.
+
+    zh: ``1094.17 亿美元`` / ``12.50 万元``; en/ko: ``$109.42B`` / ``¥1.25M`` / ``HK$…``.
+    Non-numeric/NaN -> ``N/A``.
+    """
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if amount != amount:  # NaN
+        return "N/A"
+    sign = "-" if amount < 0 else ""
+    abs_amount = abs(amount)
+    code = (currency or "").upper()
+    if _lang_key(language) == "zh":
+        suffix = _CURRENCY_SUFFIX_ZH.get(code, "元")
+        if abs_amount >= 1e8:
+            return f"{sign}{abs_amount / 1e8:.2f} 亿{suffix}"
+        if abs_amount >= 1e4:
+            return f"{sign}{abs_amount / 1e4:.2f} 万{suffix}"
+        return f"{sign}{abs_amount:.0f} {suffix}"
+    symbol = _CURRENCY_SYMBOL_EN.get(code)
+    if symbol is None:
+        symbol = f"{code} " if code else "¥"
+    return f"{sign}{symbol}{_compact_number_en(abs_amount)}"
+
+
+def format_per_share_localized(value: Any, currency: Optional[str] = None, language: Optional[str] = None) -> str:
+    """Per-share value: zh ``1.0600 美元``; en/ko ``$1.06``."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if amount != amount:  # NaN
+        return "N/A"
+    code = (currency or "").upper()
+    if _lang_key(language) == "zh":
+        return f"{amount:.4f} {_CURRENCY_SUFFIX_ZH.get(code, '元')}"
+    symbol = _CURRENCY_SYMBOL_EN.get(code)
+    if symbol is None:
+        symbol = f"{code} " if code else "¥"
+    sign = "-" if amount < 0 else ""
+    return f"{sign}{symbol}{abs(amount):.2f}"
+
+
+def format_shares_localized(value: Any, language: Optional[str] = None, signed: bool = False) -> str:
+    """Share count: zh ``2264.92 万股``; en/ko ``22.65M shares``."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if amount != amount:  # NaN
+        return "N/A"
+    if signed:
+        sign = "+" if amount > 0 else ("-" if amount < 0 else "")
+    else:
+        sign = "-" if amount < 0 else ""
+    a = abs(amount)
+    if _lang_key(language) == "zh":
+        if a >= 1e8:
+            return f"{sign}{a / 1e8:.2f} 亿股"
+        if a >= 1e4:
+            return f"{sign}{a / 1e4:.2f} 万股"
+        return f"{sign}{a:.0f} 股"
+    return f"{sign}{_compact_number_en(a)} shares"
+
+
+def localize_preformatted_value(value: Any, language: Optional[str] = None, currency: Optional[str] = None) -> Any:
+    """Re-render a zh-formatted cell such as ``2264.92 万股`` / ``1.23 亿元`` for en/ko.
+
+    Upstream snapshot builders (and persisted history rows) may carry Chinese
+    units; this keeps English reports clean without touching the producers.
+    Values that do not match the zh unit pattern are returned unchanged.
+    """
+    if _lang_key(language) == "zh" or not isinstance(value, str):
+        return value
+    m = _ZH_UNIT_VALUE_RE.match(value)
+    if not m or (m.group(2) is None and m.group(3) is None):
+        return value
+    number = float(m.group(1))
+    scale = {"亿": 1e8, "万": 1e4}.get(m.group(2) or "", 1.0)
+    raw = number * scale
+    unit = m.group(3) or ""
+    if unit in ("股", "手"):
+        if unit == "手":
+            raw *= 100
+        return format_shares_localized(raw, language)
+    currency_code = {"美元": "USD", "港元": "HKD", "新台币": "TWD", "元": currency or "CNY"}.get(unit, currency)
+    return format_amount_localized(raw, currency_code, language)
+
+
+def _localize_short_token(value: Any, language: Optional[str]) -> Any:
+    """Map a short zh dashboard token (e.g. ``本周内``) to English for en/ko; pass-through otherwise."""
+    if value is None or _lang_key(language) == "zh" or not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return value
+    mapped = _SHORT_TOKEN_LABELS_EN.get(text)
+    if mapped is not None:
+        return mapped
+    # ``1-2成`` / ``3成`` -> ``10-20%`` / ``30%`` (A-share tenths of position)
+    def _pct(m: "re.Match[str]") -> str:
+        if m.group(3) is not None:
+            return f"{float(m.group(3)) * 10:g}%"
+        return f"{float(m.group(1)) * 10:g}-{float(m.group(2)) * 10:g}%"
+    return _ZH_POSITION_SIZE_RE.sub(_pct, text)
+
+
+def _localize_volume_status(value: Any, language: Optional[str]) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text or _lang_key(language) == "zh":
+        return text
+    return _VOLUME_STATUS_LABELS_EN.get(text, text)
+
+
 def _format_strategy_skill_items(items: Any, report_language: str = "zh") -> str:
     none_text = get_report_labels(report_language).get("none_label", "None")
     if not isinstance(items, list):
@@ -128,7 +390,7 @@ def _format_strategy_skill_items(items: Any, report_language: str = "zh") -> str
         if isinstance(confidence, (int, float)):
             suffix += f"/{confidence:.0%}"
         formatted.append(f"{localize_strategy_skill(skill_id, report_language)}{suffix}")
-    return "、".join(formatted) if formatted else none_text
+    return _punct(report_language)["list_sep"].join(formatted) if formatted else none_text
 
 
 def _append_strategy_synthesis_block(lines: List[str], strategy_synthesis: Any, labels: Dict[str, str], report_language: str) -> None:
@@ -170,8 +432,9 @@ def _append_strategy_synthesis_block(lines: List[str], strategy_synthesis: Any, 
     for conflict in (strategy_synthesis.get("conflicts") or [])[:3]:
         if isinstance(conflict, dict) and conflict.get("conflict_type"):
             participants = conflict.get("participants") or []
-            participant_text = "、".join(localize_strategy_skill(participant, report_language) for participant in participants)
-            suffix = f"（{participant_text}）" if participant_text else ""
+            punct = _punct(report_language)
+            participant_text = punct["list_sep"].join(localize_strategy_skill(participant, report_language) for participant in participants)
+            suffix = f"{punct['lparen']}{participant_text}{punct['rparen']}" if participant_text else ""
             lines.append(
                 f"- {localize_conflict_severity(conflict.get('severity', 'medium'), report_language)}: "
                 f"{localize_strategy_conflict_description(conflict.get('conflict_type'), report_language)}{suffix}"
@@ -235,23 +498,23 @@ class ChannelDetector:
     def get_channel_name(channel: NotificationChannel) -> str:
         """获取渠道中文名称"""
         names = {
-            NotificationChannel.WECHAT: "企业微信",
-            NotificationChannel.FEISHU: "飞书",
-            NotificationChannel.DINGTALK: "钉钉",
+            NotificationChannel.WECHAT: "WeCom",
+            NotificationChannel.FEISHU: "Feishu",
+            NotificationChannel.DINGTALK: "DingTalk",
             NotificationChannel.TELEGRAM: "Telegram",
-            NotificationChannel.EMAIL: "邮件",
+            NotificationChannel.EMAIL: "Email",
             NotificationChannel.PUSHOVER: "Pushover",
             NotificationChannel.NTFY: "ntfy",
             NotificationChannel.GOTIFY: "Gotify",
             NotificationChannel.PUSHPLUS: "PushPlus",
-            NotificationChannel.SERVERCHAN3: "Server酱3",
-            NotificationChannel.CUSTOM: "自定义Webhook",
-            NotificationChannel.DISCORD: "Discord机器人",
+            NotificationChannel.SERVERCHAN3: "ServerChan3",
+            NotificationChannel.CUSTOM: "Custom Webhook",
+            NotificationChannel.DISCORD: "Discord Bot",
             NotificationChannel.SLACK: "Slack",
-            NotificationChannel.ASTRBOT: "ASTRBOT机器人",
-            NotificationChannel.UNKNOWN: "未知渠道",
+            NotificationChannel.ASTRBOT: "AstrBot",
+            NotificationChannel.UNKNOWN: "Unknown channel",
         }
-        return names.get(channel, "未知渠道")
+        return names.get(channel, "Unknown channel")
 
 
 class NotificationService(
@@ -331,16 +594,16 @@ class NotificationService(
         # 检测所有已配置的渠道
         self._available_channels = self._detect_all_channels()
         if self._extract_dingtalk_session_webhook() is not None:
-            self._context_channels.append("钉钉会话")
+            self._context_channels.append("DingTalk session")
         if self._extract_feishu_reply_info() is not None:
-            self._context_channels.append("飞书会话")
+            self._context_channels.append("Feishu session")
 
         if not self._available_channels and not self._context_channels:
-            logger.warning("未配置有效的通知渠道，将不发送推送通知")
+            logger.warning("No valid notification channel configured; push notifications disabled")
         else:
             channel_names = [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
             channel_names.extend(self._context_channels)
-            logger.info(f"已配置 {len(channel_names)} 个通知渠道：{', '.join(channel_names)}")
+            logger.info(f"Configured {len(channel_names)} notification channel(s): {', '.join(channel_names)}")
 
     def _normalize_report_type(self, report_type: Any) -> ReportType:
         """Normalize string/enum input into ReportType."""
@@ -422,12 +685,12 @@ class NotificationService(
             report = self.generate_brief_report(results, report_date=report_date)
         else:
             report = self.generate_dashboard_report(results, report_date=report_date)
-        scorecard = self._build_scorecard_section()
+        scorecard = self._build_scorecard_section(self._get_report_language(results))
         if scorecard:
             report = f"{report}\n\n{scorecard}"
         return report
 
-    def _build_scorecard_section(self) -> str:
+    def _build_scorecard_section(self, report_language: Optional[str] = None) -> str:
         """构建紧凑版历史战绩区块（读取最新持久化回测汇总，缺失时静默跳过）。
 
         只读路径：不触发回测计算；输出控制在 4-6 行，适合手机端摘要推送。
@@ -441,7 +704,7 @@ class NotificationService(
                 eval_window_days=None,
             )
         except Exception as exc:
-            logger.debug(f"读取回测汇总失败，跳过战绩区块: {exc}")
+            logger.debug(f"Backtest summary unavailable, skipping scorecard: {exc}")
             return ""
         if not isinstance(summary, dict):
             return ""
@@ -451,11 +714,12 @@ class NotificationService(
         if strict_pct is None and win_pct is None:
             return ""
 
-        lines = [f"📊 战绩（近{summary.get('eval_window_days')}个交易日窗口）"]
+        sc = _SCORECARD_LABELS.get(_lang_key(report_language), _SCORECARD_LABELS["en"])
+        lines = [sc["title"].format(days=summary.get('eval_window_days'))]
         scored = summary.get("scored_count") or summary.get("completed_count")
-        accuracy_line = f"- 严格准确率 {strict_pct or 'N/A'} | 传统胜率 {win_pct or 'N/A'}"
+        accuracy_line = sc["accuracy"].format(strict=strict_pct or 'N/A', win=win_pct or 'N/A')
         if scored:
-            accuracy_line += f"（n={scored}）"
+            accuracy_line += sc["n"].format(n=scored)
         lines.append(accuracy_line)
 
         calibration = summary.get("calibration")
@@ -464,14 +728,14 @@ class NotificationService(
                 brier = f"{float(calibration['brier_score']):.3f}"
                 brier_line = f"- Brier {brier}"
                 if calibration.get("sample_count"):
-                    brier_line += f"（样本 {calibration['sample_count']}）"
+                    brier_line += sc["brier_samples"].format(n=calibration['sample_count'])
                 lines.append(brier_line)
             except (TypeError, ValueError):
                 pass
 
         direction_breakdown = summary.get("direction_breakdown")
         if isinstance(direction_breakdown, dict):
-            label_map = (("up", "买"), ("not_down", "持"), ("flat", "观"), ("down", "卖"))
+            label_map = tuple((key, sc[key]) for key in ("up", "not_down", "flat", "down"))
             cells = []
             for direction, label in label_map:
                 bucket = direction_breakdown.get(direction)
@@ -486,7 +750,7 @@ class NotificationService(
                     continue
                 cells.append(f"{label} {hit}")
             if cells:
-                lines.append("- 分方向命中: " + " · ".join(cells))
+                lines.append(sc["direction"] + " · ".join(cells))
 
         return "\n".join(lines)
 
@@ -651,7 +915,7 @@ class NotificationService(
 
         route_config = get_notification_route_config(route_type)
         if route_config is None:
-            logger.warning("未知通知路由类型 %s，沿用全部已配置渠道", route_type)
+            logger.warning("Unknown notification route type %s; using all configured channels", route_type)
             return target_channels
 
         configured_route_channels = getattr(self._config, route_config["config_attr"], []) or []
@@ -661,7 +925,7 @@ class NotificationService(
         valid_channels, invalid_channels = split_notification_route_channels(configured_route_channels)
         if invalid_channels:
             logger.warning(
-                "%s 包含未知通知渠道，将忽略: %s",
+                "%s contains unknown notification channels, ignoring: %s",
                 route_config["env_key"],
                 ", ".join(invalid_channels),
             )
@@ -673,7 +937,7 @@ class NotificationService(
         """获取所有已配置渠道的名称"""
         names = [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
         if self._has_context_channel():
-            names.append("钉钉会话")
+            names.append("DingTalk session")
         return ', '.join(names)
 
     def evaluate_noise_control(
@@ -800,12 +1064,12 @@ class NotificationService(
         if session_webhook:
             try:
                 if self._send_dingtalk_chunked(session_webhook, content, max_bytes=20000):
-                    logger.info("已通过钉钉会话（Stream）推送报告")
+                    logger.info("Report pushed via DingTalk session (Stream)")
                     success = True
                 else:
-                    logger.error("钉钉会话（Stream）推送失败")
+                    logger.error("DingTalk session (Stream) push failed")
             except Exception as e:
-                logger.error(f"钉钉会话（Stream）推送异常: {e}")
+                logger.error(f"DingTalk session (Stream) push error: {e}")
 
         # 尝试飞书会话
         feishu_info = self._extract_feishu_reply_info()
@@ -813,24 +1077,24 @@ class NotificationService(
             try:
                 sanitized_content = strip_hidden_markdown_metadata(content).strip()
                 if self._send_feishu_stream_reply(feishu_info["chat_id"], sanitized_content):
-                    logger.info("已通过飞书会话（Stream）推送报告")
+                    logger.info("Report pushed via Feishu session (Stream)")
                     success = True
                 else:
-                    logger.error("飞书会话（Stream）推送失败")
+                    logger.error("Feishu session (Stream) push failed")
             except Exception as e:
-                logger.error(f"飞书会话（Stream）推送异常: {e}")
+                logger.error(f"Feishu session (Stream) push error: {e}")
 
         # 尝试 Telegram 会话上下文（按来源 chat_id 回执）
         telegram_chat_id = self._extract_telegram_context_chat_id()
         if telegram_chat_id:
             try:
                 if self.send_to_telegram(content, chat_id=telegram_chat_id):
-                    logger.info("已通过 Telegram 上下文会话推送报告")
+                    logger.info("Report pushed via Telegram context session")
                     success = True
                 else:
-                    logger.error("Telegram 上下文会话推送失败")
+                    logger.error("Telegram context session push failed")
             except Exception as e:
-                logger.error(f"Telegram 上下文会话推送异常: {e}")
+                logger.error(f"Telegram context session push error: {e}")
 
         return success
 
@@ -848,7 +1112,7 @@ class NotificationService(
         try:
             from bot.platforms.feishu_stream import FeishuReplyClient, FEISHU_SDK_AVAILABLE
             if not FEISHU_SDK_AVAILABLE:
-                logger.warning("飞书 SDK 不可用，无法发送 Stream 回复")
+                logger.warning("Feishu SDK unavailable; cannot send Stream reply")
                 return False
 
             from src.config import get_config
@@ -858,7 +1122,7 @@ class NotificationService(
             app_secret = getattr(config, 'feishu_app_secret', None)
 
             if not app_id or not app_secret:
-                logger.warning("飞书 APP_ID 或 APP_SECRET 未配置")
+                logger.warning("Feishu APP_ID or APP_SECRET not configured")
                 return False
 
             # 创建回复客户端
@@ -875,10 +1139,10 @@ class NotificationService(
             return reply_client.send_to_chat(chat_id, content)
 
         except ImportError as e:
-            logger.error(f"导入飞书 Stream 模块失败: {e}")
+            logger.error(f"Failed to import Feishu Stream module: {e}")
             return False
         except Exception as e:
-            logger.error(f"飞书 Stream 回复异常: {e}")
+            logger.error(f"Feishu Stream reply error: {e}")
             return False
 
     def _send_feishu_stream_chunked(
@@ -946,7 +1210,7 @@ class NotificationService(
 
             if not reply_client.send_to_chat(chat_id, chunk):
                 success = False
-                logger.error(f"飞书 Stream 分块 {i+1}/{len(chunks)} 发送失败")
+                logger.error(f"Feishu Stream chunk {i+1}/{len(chunks)} failed to send")
 
         return success
 
@@ -969,13 +1233,22 @@ class NotificationService(
             report_date = datetime.now().strftime('%Y-%m-%d')
         report_language = self._get_report_language(results)
         labels = get_report_labels(report_language)
+        punct = _punct(report_language)
+        colon = punct["colon"]
+
+        def _nlabel(en: str, zh: str, ko: str) -> str:
+            if report_language == "en":
+                return en
+            if report_language == "ko":
+                return ko
+            return zh
 
         # 标题
         report_lines = [
             f"# 📅 {report_date} {labels['report_title']}",
             "",
             f"> {labels['analyzed_prefix']} **{len(results)}** {labels['stock_unit']} | "
-            f"{labels['generated_at_label']}：{datetime.now().strftime('%H:%M:%S')}",
+            f"{labels['generated_at_label']}{punct['colon']}{datetime.now().strftime('%H:%M:%S')}",
         ]
         self._append_market_status_line(report_lines, results, report_language)
         report_lines.extend(["---", ""])
@@ -993,7 +1266,7 @@ class NotificationService(
         report_lines.extend([
             f"## 📊 {labels['summary_heading']}",
             "",
-            "| 指标 | 数值 |",
+            f"| {_nlabel('Metric', '指标', '지표')} | {_nlabel('Value', '数值', '값')} |",
             "|------|------|",
             f"| 🟢 {labels['buy_label']} | **{buy_count}** {labels['stock_unit_compact']} |",
             f"| 🟡 {labels['watch_label']} | **{hold_count}** {labels['stock_unit_compact']} |",
@@ -1025,10 +1298,10 @@ class NotificationService(
                 report_lines.extend([
                     f"### {emoji} {self._get_display_name(result, report_language)} ({result.code})",
                     "",
-                    f"**{labels['action_advice_label']}：{signal_text}** | "
-                    f"**{labels['score_label']}：{result.sentiment_score}** | "
-                    f"**{labels['trend_label']}：{localize_trend_prediction(result.trend_prediction, report_language)}** | "
-                    f"**Confidence：{confidence_stars}**",
+                    f"**{labels['action_advice_label']}{colon}{signal_text}** | "
+                    f"**{labels['score_label']}{colon}{result.sentiment_score}** | "
+                    f"**{labels['trend_label']}{colon}{localize_trend_prediction(result.trend_prediction, report_language)}** | "
+                    f"**{_nlabel('Confidence', '置信度', '신뢰도')}{colon}{confidence_stars}**",
                     "",
                 ])
                 self._append_market_snapshot(report_lines, result)
@@ -1036,21 +1309,21 @@ class NotificationService(
                 # 核心看点
                 if hasattr(result, 'key_points') and result.key_points:
                     report_lines.extend([
-                        f"**🎯 核心看点**：{result.key_points}",
+                        f"**🎯 {_nlabel('Key Points', '核心看点', '핵심 포인트')}**{colon}{result.key_points}",
                         "",
                     ])
 
                 # 买入/卖出理由
                 if hasattr(result, 'buy_reason') and result.buy_reason:
                     report_lines.extend([
-                        f"**💡 操作理由**：{result.buy_reason}",
+                        f"**💡 {_nlabel('Rationale', '操作理由', '판단 근거')}**{colon}{result.buy_reason}",
                         "",
                     ])
 
                 # 走势分析
                 if hasattr(result, 'trend_analysis') and result.trend_analysis:
                     report_lines.extend([
-                        "#### 📉 走势分析",
+                        f"#### 📉 {_nlabel('Trend Analysis', '走势分析', '추세 분석')}",
                         f"{result.trend_analysis}",
                         "",
                     ])
@@ -1058,12 +1331,12 @@ class NotificationService(
                 # 短期/中期展望
                 outlook_lines = []
                 if hasattr(result, 'short_term_outlook') and result.short_term_outlook:
-                    outlook_lines.append(f"- **短期（1-3日）**：{result.short_term_outlook}")
+                    outlook_lines.append(f"- **{_nlabel('Short term (1-3 days)', '短期（1-3日）', '단기 (1-3일)')}**{colon}{result.short_term_outlook}")
                 if hasattr(result, 'medium_term_outlook') and result.medium_term_outlook:
-                    outlook_lines.append(f"- **中期（1-2周）**：{result.medium_term_outlook}")
+                    outlook_lines.append(f"- **{_nlabel('Medium term (1-2 weeks)', '中期（1-2周）', '중기 (1-2주)')}**{colon}{result.medium_term_outlook}")
                 if outlook_lines:
                     report_lines.extend([
-                        "#### 🔮 市场展望",
+                        f"#### 🔮 {_nlabel('Market Outlook', '市场展望', '시장 전망')}",
                         *outlook_lines,
                         "",
                     ])
@@ -1071,16 +1344,16 @@ class NotificationService(
                 # 技术面分析
                 tech_lines = []
                 if result.technical_analysis:
-                    tech_lines.append(f"**综合**：{result.technical_analysis}")
+                    tech_lines.append(f"**{_nlabel('Overall', '综合', '종합')}**{colon}{result.technical_analysis}")
                 if hasattr(result, 'ma_analysis') and result.ma_analysis:
-                    tech_lines.append(f"**均线**：{result.ma_analysis}")
+                    tech_lines.append(f"**{_nlabel('Moving Averages', '均线', '이동평균')}**{colon}{result.ma_analysis}")
                 if hasattr(result, 'volume_analysis') and result.volume_analysis:
-                    tech_lines.append(f"**量能**：{result.volume_analysis}")
+                    tech_lines.append(f"**{_nlabel('Volume', '量能', '거래량')}**{colon}{result.volume_analysis}")
                 if hasattr(result, 'pattern_analysis') and result.pattern_analysis:
-                    tech_lines.append(f"**形态**：{result.pattern_analysis}")
+                    tech_lines.append(f"**{_nlabel('Pattern', '形态', '패턴')}**{colon}{result.pattern_analysis}")
                 if tech_lines:
                     report_lines.extend([
-                        "#### 📊 技术面分析",
+                        f"#### 📊 {_nlabel('Technical Analysis', '技术面分析', '기술적 분석')}",
                         *tech_lines,
                         "",
                     ])
@@ -1090,12 +1363,12 @@ class NotificationService(
                 if hasattr(result, 'fundamental_analysis') and result.fundamental_analysis:
                     fund_lines.append(result.fundamental_analysis)
                 if hasattr(result, 'sector_position') and result.sector_position:
-                    fund_lines.append(f"**板块地位**：{result.sector_position}")
+                    fund_lines.append(f"**{_nlabel('Sector Position', '板块地位', '섹터 위치')}**{colon}{result.sector_position}")
                 if hasattr(result, 'company_highlights') and result.company_highlights:
-                    fund_lines.append(f"**公司亮点**：{result.company_highlights}")
+                    fund_lines.append(f"**{_nlabel('Company Highlights', '公司亮点', '기업 하이라이트')}**{colon}{result.company_highlights}")
                 if fund_lines:
                     report_lines.extend([
-                        "#### 🏢 基本面分析",
+                        f"#### 🏢 {_nlabel('Fundamentals', '基本面分析', '펀더멘털 분석')}",
                         *fund_lines,
                         "",
                     ])
@@ -1103,14 +1376,14 @@ class NotificationService(
                 # 消息面/情绪面
                 news_lines = []
                 if result.news_summary:
-                    news_lines.append(f"**新闻摘要**：{result.news_summary}")
+                    news_lines.append(f"**{_nlabel('News Summary', '新闻摘要', '뉴스 요약')}**{colon}{result.news_summary}")
                 if hasattr(result, 'market_sentiment') and result.market_sentiment:
-                    news_lines.append(f"**市场情绪**：{result.market_sentiment}")
+                    news_lines.append(f"**{_nlabel('Market Sentiment', '市场情绪', '시장 심리')}**{colon}{result.market_sentiment}")
                 if hasattr(result, 'hot_topics') and result.hot_topics:
-                    news_lines.append(f"**相关热点**：{result.hot_topics}")
+                    news_lines.append(f"**{_nlabel('Related Topics', '相关热点', '관련 이슈')}**{colon}{result.hot_topics}")
                 if news_lines:
                     report_lines.extend([
-                        "#### 📰 消息面/情绪面",
+                        f"#### 📰 {_nlabel('News & Sentiment', '消息面/情绪面', '뉴스/심리')}",
                         *news_lines,
                         "",
                     ])
@@ -1118,7 +1391,7 @@ class NotificationService(
                 # 综合分析
                 if result.analysis_summary:
                     report_lines.extend([
-                        "#### 📝 综合分析",
+                        f"#### 📝 {_nlabel('Summary', '综合分析', '종합 분석')}",
                         result.analysis_summary,
                         "",
                     ])
@@ -1126,21 +1399,21 @@ class NotificationService(
                 # 风险提示
                 if hasattr(result, 'risk_warning') and result.risk_warning:
                     report_lines.extend([
-                        f"⚠️ **风险提示**：{result.risk_warning}",
+                        f"⚠️ **{_nlabel('Risk Warning', '风险提示', '리스크 경고')}**{colon}{result.risk_warning}",
                         "",
                     ])
 
                 # 数据来源说明
                 if hasattr(result, 'search_performed') and result.search_performed:
-                    report_lines.append("*🔍 已执行联网搜索*")
+                    report_lines.append(f"*🔍 {_nlabel('Web search performed', '已执行联网搜索', '웹 검색 수행됨')}*")
                 if hasattr(result, 'data_sources') and result.data_sources:
-                    report_lines.append(f"*📋 数据来源：{result.data_sources}*")
+                    report_lines.append(f"*📋 {_nlabel('Data Sources', '数据来源', '데이터 출처')}{colon}{result.data_sources}*")
 
                 # 错误信息（如果有）
                 if not result.success and result.error_message:
                     report_lines.extend([
                         "",
-                        f"❌ **分析异常**：{result.error_message[:100]}",
+                        f"❌ **{_nlabel('Analysis Error', '分析异常', '분석 오류')}**{colon}{result.error_message[:100]}",
                     ])
 
                 report_lines.extend([
@@ -1152,7 +1425,7 @@ class NotificationService(
         # 底部信息（去除免责声明）
         report_lines.extend([
             "",
-            f"*{labels['generated_at_label']}：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+            f"*{labels['generated_at_label']}{punct['colon']}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
         ])
 
         return "\n".join(report_lines)
@@ -1207,6 +1480,7 @@ class NotificationService(
         report_lines: List[str],
         dashboard: Dict[str, Any],
         labels: Dict[str, str],
+        report_language: Optional[str] = None,
     ) -> None:
         phase_decision = dashboard.get("phase_decision") if dashboard else None
         if not isinstance(phase_decision, dict):
@@ -1222,9 +1496,9 @@ class NotificationService(
             "",
             f"| {labels['action_window_label']} | {labels['immediate_action_label']} | {labels['next_check_time_label']} |",
             "|---------|---------|---------|",
-            f"| {phase_decision.get('action_window') or 'N/A'} | "
-            f"{phase_decision.get('immediate_action') or 'N/A'} | "
-            f"{phase_decision.get('next_check_time') or 'N/A'} |",
+            f"| {_localize_short_token(phase_decision.get('action_window') or 'N/A', report_language)} | "
+            f"{_localize_short_token(phase_decision.get('immediate_action') or 'N/A', report_language)} | "
+            f"{_localize_short_token(phase_decision.get('next_check_time') or 'N/A', report_language)} |",
             "",
         ])
 
@@ -1328,6 +1602,7 @@ class NotificationService(
                 return ko
             return zh
 
+        punct = _punct(report_language)
         reason_label = _nlabel("Rationale", "操作理由", "판단 근거")
         risk_warning_label = _nlabel("Risk Warning", "风险提示", "리스크 경고")
         technical_heading = _nlabel("Technicals", "技术面", "기술적 분석")
@@ -1435,7 +1710,7 @@ class NotificationService(
                 # ========== 核心结论 ==========
                 core = dashboard.get('core_conclusion', {}) if dashboard else {}
                 one_sentence = core.get('one_sentence', result.analysis_summary)
-                time_sense = core.get('time_sensitivity', labels['default_time_sensitivity'])
+                time_sense = _localize_short_token(core.get('time_sensitivity') or labels['default_time_sensitivity'], report_language)
                 pos_advice = core.get('position_advice', {})
 
                 report_lines.extend([
@@ -1491,7 +1766,7 @@ class NotificationService(
                         ])
                     # 价格位置
                     if price_data:
-                        bias_status = price_data.get('bias_status', 'N/A')
+                        bias_status = localize_bias_status(price_data.get('bias_status') or 'N/A', report_language)
                         report_lines.extend([
                             f"| {labels['price_metrics_label']} | {labels['current_price_label']} |",
                             "|---------|------|",
@@ -1499,16 +1774,18 @@ class NotificationService(
                             f"| {labels['ma5_label']} | {price_data.get('ma5', 'N/A')} |",
                             f"| {labels['ma10_label']} | {price_data.get('ma10', 'N/A')} |",
                             f"| {labels['ma20_label']} | {price_data.get('ma20', 'N/A')} |",
-                            f"| {labels['bias_ma5_label']} | {price_data.get('bias_ma5', 'N/A')}% {bias_status} |",
+                            f"| {labels['bias_ma5_label']} | {_fmt_pct_cell(price_data.get('bias_ma5'))} {bias_status} |",
                             f"| {labels['support_level_label']} | {price_data.get('support_level', 'N/A')} |",
                             f"| {labels['resistance_level_label']} | {price_data.get('resistance_level', 'N/A')} |",
                             "",
                         ])
                     # 量能分析
                     if vol_data:
+                        volume_status = _localize_volume_status(vol_data.get('volume_status'), report_language)
                         report_lines.extend([
-                            f"**{labels['volume_label']}**: {labels['volume_ratio_label']} {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | "
-                            f"{labels['turnover_rate_label']} {vol_data.get('turnover_rate', 'N/A')}%",
+                            f"**{labels['volume_label']}**: {labels['volume_ratio_label']} {_na(vol_data.get('volume_ratio'))}"
+                            f"{' (' + volume_status + ')' if volume_status else ''} | "
+                            f"{labels['turnover_rate_label']} {_fmt_pct_cell(vol_data.get('turnover_rate'))}",
                             f"💡 *{vol_data.get('volume_meaning', '')}*",
                             "",
                         ])
@@ -1534,7 +1811,7 @@ class NotificationService(
                                 "",
                             ])
 
-                self._append_phase_decision_block(report_lines, dashboard, labels)
+                self._append_phase_decision_block(report_lines, dashboard, labels, report_language)
 
                 # ========== 作战计划 ==========
                 battle = dashboard.get('battle_plan', {}) if dashboard else {}
@@ -1561,7 +1838,7 @@ class NotificationService(
                     position = battle.get('position_strategy', {})
                     if position:
                         report_lines.extend([
-                            f"**💰 {labels['suggested_position_label']}**: {position.get('suggested_position', 'N/A')}",
+                            f"**💰 {labels['suggested_position_label']}**: {_localize_short_token(_na(position.get('suggested_position')), report_language)}",
                             f"- {labels['entry_plan_label']}: {position.get('entry_plan', 'N/A')}",
                             f"- {labels['risk_control_label']}: {position.get('risk_control', 'N/A')}",
                             "",
@@ -1655,11 +1932,11 @@ class NotificationService(
         # 底部（去除免责声明）
         report_lines.extend([
             "",
-            f"*{labels['generated_at_label']}：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+            f"*{labels['generated_at_label']}{punct['colon']}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
         ])
         models = self._collect_models_used(results)
         if models:
-            report_lines.append(f"*{labels['analysis_model_label']}：{', '.join(models)}*")
+            report_lines.append(f"*{labels['analysis_model_label']}{punct['colon']}{', '.join(models)}*")
 
         return "\n".join(report_lines)
 
@@ -2088,18 +2365,18 @@ class NotificationService(
         signal_attr = dashboard.get('signal_attribution', {}) if dashboard else {}
         if signal_attribution_has_content(signal_attr):
             lines.extend([
-                f"### 🎯 {labels.get('signal_attribution_heading', '信号归因分析')}",
+                f"### 🎯 {labels.get('signal_attribution_heading', 'Signal Attribution')}",
                 "",
             ])
             # 归因权重
             weight_items = signal_attribution_weight_items(signal_attr)
             if weight_items:
-                lines.append(f"**{labels.get('attribution_weights_label', '归因权重')}**:")
+                lines.append(f"**{labels.get('attribution_weights_label', 'Attribution Weights')}**:")
                 weight_labels = {
-                    "technical_indicators": ("📈", labels.get('technical_indicators_label', '技术指标')),
-                    "news_sentiment": ("📰", labels.get('news_sentiment_label', '新闻舆情')),
-                    "fundamentals": ("📊", labels.get('fundamentals_label', '基本面')),
-                    "market_conditions": ("🌐", labels.get('market_conditions_label', '市场环境')),
+                    "technical_indicators": ("📈", labels.get('technical_indicators_label', 'Technical Indicators')),
+                    "news_sentiment": ("📰", labels.get('news_sentiment_label', 'News Sentiment')),
+                    "fundamentals": ("📊", labels.get('fundamentals_label', 'Fundamentals')),
+                    "market_conditions": ("🌐", labels.get('market_conditions_label', 'Market Conditions')),
                 }
                 for key, value in weight_items:
                     icon, label = weight_labels[key]
@@ -2110,9 +2387,9 @@ class NotificationService(
             bullish = signal_attr.get('strongest_bullish_signal')
             bearish = signal_attr.get('strongest_bearish_signal')
             if bullish:
-                lines.append(f"**🐂 {labels.get('strongest_bullish_signal_label', '最强看多信号')}**: {bullish}")
+                lines.append(f"**🐂 {labels.get('strongest_bullish_signal_label', 'Strongest Bullish Signal')}**: {bullish}")
             if bearish:
-                lines.append(f"**🐻 {labels.get('strongest_bearish_signal_label', '最强看空信号')}**: {bearish}")
+                lines.append(f"**🐻 {labels.get('strongest_bearish_signal_label', 'Strongest Bearish Signal')}**: {bearish}")
             lines.append("")
 
         # 持仓建议
@@ -2157,7 +2434,8 @@ class NotificationService(
         mapping = self._SOURCE_DISPLAY_NAMES.get(raw_source)
         if not mapping:
             return raw_source
-        return mapping[normalize_report_language(language)]
+        normalized_language = normalize_report_language(language)
+        return mapping.get(normalized_language, mapping.get("en", raw_source))
 
     @staticmethod
     def _build_trade_math_line(dashboard: Any, report_language: str) -> str:
@@ -2200,17 +2478,21 @@ class NotificationService(
 
         report_language = self._get_report_language(result)
         labels = get_report_labels(report_language)
+        snapshot_currency = snapshot.get('currency') if isinstance(snapshot.get('currency'), str) else None
+
+        def cell(key: str) -> Any:
+            return localize_preformatted_value(_na(snapshot.get(key)), report_language, snapshot_currency)
 
         lines.extend([
             f"### 📈 {labels['market_snapshot_heading']}",
             "",
             f"| {labels['close_label']} | {labels['prev_close_label']} | {labels['open_label']} | {labels['high_label']} | {labels['low_label']} | {labels['change_pct_label']} | {labels['change_amount_label']} | {labels['amplitude_label']} | {labels['volume_label']} | {labels['amount_label']} |",
             "|------|------|------|------|------|-------|-------|------|--------|--------|",
-            f"| {snapshot.get('close', 'N/A')} | {snapshot.get('prev_close', 'N/A')} | "
-            f"{snapshot.get('open', 'N/A')} | {snapshot.get('high', 'N/A')} | "
-            f"{snapshot.get('low', 'N/A')} | {snapshot.get('pct_chg', 'N/A')} | "
-            f"{snapshot.get('change_amount', 'N/A')} | {snapshot.get('amplitude', 'N/A')} | "
-            f"{snapshot.get('volume', 'N/A')} | {snapshot.get('amount', 'N/A')} |",
+            f"| {cell('close')} | {cell('prev_close')} | "
+            f"{cell('open')} | {cell('high')} | "
+            f"{cell('low')} | {cell('pct_chg')} | "
+            f"{cell('change_amount')} | {cell('amplitude')} | "
+            f"{cell('volume')} | {cell('amount')} |",
         ])
 
         if "price" in snapshot:
@@ -2219,41 +2501,22 @@ class NotificationService(
                 "",
                 f"| {labels['current_price_label']} | {labels['volume_ratio_label']} | {labels['turnover_rate_label']} | {labels['source_label']} |",
                 "|-------|------|--------|----------|",
-                f"| {snapshot.get('price', 'N/A')} | {snapshot.get('volume_ratio', 'N/A')} | "
-                f"{snapshot.get('turnover_rate', 'N/A')} | {display_source} |",
+                f"| {cell('price')} | {cell('volume_ratio')} | "
+                f"{cell('turnover_rate')} | {display_source} |",
             ])
 
         lines.append("")
 
-    _CURRENCY_SUFFIX = {
-        "USD": "美元",
-        "HKD": "港元",
-        "CNY": "元",
-        "RMB": "元",
-        "CNH": "元",
-        "TWD": "新台币",  # 台股 (TWSE/TPEx) 以新台币计价，避免与 A 股「元」(人民币) 混淆
-    }
+    # Kept for backwards compatibility; the zh suffix table lives at module level.
+    _CURRENCY_SUFFIX = _CURRENCY_SUFFIX_ZH
 
     @classmethod
-    def _format_amount_cn(cls, value: Any, currency: Optional[str] = None) -> str:
-        """Format absolute amounts in 亿/万 + currency suffix; returns N/A on non-numeric.
+    def _format_amount_cn(cls, value: Any, currency: Optional[str] = None, language: Optional[str] = None) -> str:
+        """Format absolute amounts; zh uses 亿/万 + currency suffix, en/ko uses $1.23B style.
 
-        ``currency`` accepts ``USD``/``HKD``/``CNY``; unknown values fall back to 元.
+        ``currency`` accepts ``USD``/``HKD``/``CNY``/``TWD``; returns N/A on non-numeric.
         """
-        try:
-            amount = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        if amount != amount:  # NaN
-            return "N/A"
-        sign = "-" if amount < 0 else ""
-        abs_amount = abs(amount)
-        suffix = cls._CURRENCY_SUFFIX.get((currency or "").upper(), "元")
-        if abs_amount >= 1e8:
-            return f"{sign}{abs_amount / 1e8:.2f} 亿{suffix}"
-        if abs_amount >= 1e4:
-            return f"{sign}{abs_amount / 1e4:.2f} 万{suffix}"
-        return f"{sign}{abs_amount:.0f} {suffix}"
+        return format_amount_localized(value, currency, language)
 
     @staticmethod
     def _format_percent(value: Any) -> str:
@@ -2263,15 +2526,8 @@ class NotificationService(
             return "N/A"
 
     @classmethod
-    def _format_per_share(cls, value: Any, currency: Optional[str] = None) -> str:
-        try:
-            amount = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        if amount != amount:  # NaN
-            return "N/A"
-        suffix = cls._CURRENCY_SUFFIX.get((currency or "").upper(), "元")
-        return f"{amount:.4f} {suffix}"
+    def _format_per_share(cls, value: Any, currency: Optional[str] = None, language: Optional[str] = None) -> str:
+        return format_per_share_localized(value, currency, language)
 
     @staticmethod
     def _format_text(value: Any) -> str:
@@ -2355,9 +2611,9 @@ class NotificationService(
         report_language = self._get_report_language(result)
         labels = get_report_labels(report_language)
 
-        self._append_financial_summary(lines, blocks, labels)
-        self._append_shareholder_return(lines, blocks, labels)
-        self._append_institutional_flow(lines, blocks, labels)
+        self._append_financial_summary(lines, blocks, labels, report_language)
+        self._append_shareholder_return(lines, blocks, labels, report_language)
+        self._append_institutional_flow(lines, blocks, labels, report_language)
         self._append_related_boards(lines, blocks, labels)
 
     def _append_financial_summary(
@@ -2365,15 +2621,16 @@ class NotificationService(
         lines: List[str],
         blocks: Dict[str, Any],
         labels: Dict[str, str],
+        report_language: Optional[str] = None,
     ) -> None:
         report = blocks.get("financial_report") or {}
         growth = blocks.get("growth") or {}
         currency = report.get("currency") if isinstance(report.get("currency"), str) else None
         cells = {
             "report_date": self._format_text(report.get("report_date")),
-            "revenue": self._format_amount_cn(report.get("revenue"), currency),
-            "net_profit": self._format_amount_cn(report.get("net_profit_parent"), currency),
-            "operating_cash_flow": self._format_amount_cn(report.get("operating_cash_flow"), currency),
+            "revenue": self._format_amount_cn(report.get("revenue"), currency, report_language),
+            "net_profit": self._format_amount_cn(report.get("net_profit_parent"), currency, report_language),
+            "operating_cash_flow": self._format_amount_cn(report.get("operating_cash_flow"), currency, report_language),
             "roe": self._format_percent(report.get("roe") if report.get("roe") is not None else growth.get("roe")),
             "revenue_yoy": self._format_percent(growth.get("revenue_yoy")),
             "net_profit_yoy": self._format_percent(growth.get("net_profit_yoy")),
@@ -2406,6 +2663,7 @@ class NotificationService(
         lines: List[str],
         blocks: Dict[str, Any],
         labels: Dict[str, str],
+        report_language: Optional[str] = None,
     ) -> None:
         dividend = blocks.get("dividend") or {}
         report = blocks.get("financial_report") or {}
@@ -2422,7 +2680,7 @@ class NotificationService(
 
         ttm_event_count = dividend.get("ttm_event_count")
         cells = {
-            "ttm_cash": self._format_per_share(dividend.get("ttm_cash_dividend_per_share"), dividend_currency),
+            "ttm_cash": self._format_per_share(dividend.get("ttm_cash_dividend_per_share"), dividend_currency, report_language),
             "ttm_count": str(ttm_event_count) if isinstance(ttm_event_count, int) else "N/A",
             "ttm_yield": self._format_percent(dividend.get("ttm_dividend_yield_pct")),
             "latest_ex": self._format_text(latest_event.get("ex_dividend_date") or latest_event.get("event_date")),
@@ -2446,30 +2704,19 @@ class NotificationService(
         ])
 
     @classmethod
-    def _format_net_shares(cls, value: Any) -> str:
-        """Format an institutional net buy/sell in 万股/亿股, signed (+ = net buy).
+    def _format_net_shares(cls, value: Any, language: Optional[str] = None) -> str:
+        """Format an institutional net buy/sell, signed (+ = net buy).
 
-        Thresholds: abs >= 1e8 -> 亿股, >= 1e4 -> 万股, else 股. None/NaN/non-numeric -> N/A.
+        zh: 亿股/万股/股; en/ko: K/M/B shares. None/NaN/non-numeric -> N/A.
         """
-        try:
-            amount = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        if amount != amount:  # NaN
-            return "N/A"
-        sign = "+" if amount > 0 else ("-" if amount < 0 else "")
-        a = abs(amount)
-        if a >= 1e8:
-            return f"{sign}{a / 1e8:.2f} 亿股"
-        if a >= 1e4:
-            return f"{sign}{a / 1e4:.2f} 万股"
-        return f"{sign}{a:.0f} 股"
+        return format_shares_localized(value, language, signed=True)
 
     def _append_institutional_flow(
         self,
         lines: List[str],
         blocks: Dict[str, Any],
         labels: Dict[str, str],
+        report_language: Optional[str] = None,
     ) -> None:
         """Append the 三大法人 (institutional flows) table — tw-only.
 
@@ -2481,17 +2728,18 @@ class NotificationService(
             return
         inst = blocks.get("institution") or {}
         cells = {
-            "foreign": self._format_net_shares(inst.get("foreign_net")),
-            "trust": self._format_net_shares(inst.get("trust_net")),
-            "dealer": self._format_net_shares(inst.get("dealer_net")),
-            "total": self._format_net_shares(inst.get("total_net")),
+            "foreign": self._format_net_shares(inst.get("foreign_net"), report_language),
+            "trust": self._format_net_shares(inst.get("trust_net"), report_language),
+            "dealer": self._format_net_shares(inst.get("dealer_net"), report_language),
+            "total": self._format_net_shares(inst.get("total_net"), report_language),
         }
         if all(v == "N/A" for v in cells.values()):
             return
         date = self._format_text(inst.get("date"))
         source = self._format_text(inst.get("source"))
+        punct = _punct(report_language)
         lines.extend([
-            f"### 📊 {labels['institutional_flow_heading']}（{date} · {source}）",
+            f"### 📊 {labels['institutional_flow_heading']}{punct['lparen']}{date} · {source}{punct['rparen']}",
             "",
             f"> {labels['institutional_flow_note']}",
             "",
@@ -2619,7 +2867,7 @@ class NotificationService(
             return False
         if channel == NotificationChannel.WECHAT and len(image_bytes) > WECHAT_IMAGE_MAX_BYTES:
             logger.warning(
-                "企业微信图片超限 (%d bytes)，回退为 Markdown 文本发送",
+                "WeCom image exceeds size limit (%d bytes); falling back to Markdown text",
                 len(image_bytes),
             )
             return False
@@ -2693,7 +2941,7 @@ class NotificationService(
             return self.send_to_slack(content)
         if channel == NotificationChannel.ASTRBOT:
             return self.send_to_astrbot(sanitized_content)
-        logger.warning(f"不支持的通知渠道: {channel}")
+        logger.warning(f"Unsupported notification channel: {channel}")
         return False
 
     def send_with_results(
@@ -2734,14 +2982,14 @@ class NotificationService(
         context_success = self.send_to_context(content)
         if not self.should_broadcast_static_channels():
             if context_success:
-                logger.info("已通过上下文会话完成推送，跳过静态通知渠道")
+                logger.info("Delivered via context session; skipping static notification channels")
                 return NotificationDispatchResult(
                     dispatched=True,
                     success=True,
                     status="sent",
                     channel_results=[ChannelAttemptResult(channel="__context__", success=True)],
                 )
-            logger.warning("交互式上下文推送失败，已跳过静态通知渠道")
+            logger.warning("Interactive context push failed; static notification channels skipped")
             return NotificationDispatchResult(
                 dispatched=True,
                 success=False,
@@ -2759,14 +3007,14 @@ class NotificationService(
 
         if not self._available_channels:
             if context_success:
-                logger.info("已通过消息上下文渠道完成推送（无其他通知渠道）")
+                logger.info("Delivered via message context channel (no other channels configured)")
                 return NotificationDispatchResult(
                     dispatched=True,
                     success=True,
                     status="sent",
                     channel_results=[ChannelAttemptResult(channel="__context__", success=True)],
                 )
-            logger.warning("通知服务不可用，跳过推送")
+            logger.warning("Notification service unavailable; skipping push")
             return NotificationDispatchResult(
                 dispatched=False,
                 success=False,
@@ -2777,14 +3025,14 @@ class NotificationService(
         target_channels = self.get_channels_for_route(route_type)
         if not target_channels:
             if context_success:
-                logger.info("已通过消息上下文渠道完成推送（路由后无其他通知渠道）")
+                logger.info("Delivered via message context channel (no other channels after routing)")
                 return NotificationDispatchResult(
                     dispatched=True,
                     success=True,
                     status="sent",
                     channel_results=[ChannelAttemptResult(channel="__context__", success=True)],
                 )
-            logger.warning("通知路由 %s 未命中任何已配置渠道，跳过静态通知渠道", route_type)
+            logger.warning("Notification route %s matched no configured channel; skipping static channels", route_type)
             return NotificationDispatchResult(
                 dispatched=False,
                 success=False,
@@ -2827,7 +3075,7 @@ class NotificationService(
                 structured_payload=structured_payload,
             )
             if image_bytes:
-                logger.info("Markdown 已转换为图片，将向 %s 发送图片",
+                logger.info("Markdown converted to image; sending image to %s",
                             [ch.value for ch in channels_needing_image])
             elif channels_needing_image:
                 try:
@@ -2840,12 +3088,12 @@ class NotificationService(
                     else "wkhtmltopdf (apt install wkhtmltopdf / brew install wkhtmltopdf)"
                 )
                 logger.warning(
-                    "Markdown 转图片失败，将回退为文本发送。请检查 MARKDOWN_TO_IMAGE_CHANNELS 配置并安装 %s",
+                    "Markdown-to-image conversion failed; falling back to text. Check MARKDOWN_TO_IMAGE_CHANNELS and install %s",
                     hint,
                 )
 
         channel_names = ', '.join(ChannelDetector.get_channel_name(ch) for ch in target_channels)
-        logger.info(f"正在向 {len(target_channels)} 个渠道发送通知：{channel_names}")
+        logger.info(f"Sending notification to {len(target_channels)} channel(s): {channel_names}")
 
         success_count = 0
         fail_count = 0
@@ -2880,7 +3128,7 @@ class NotificationService(
                 )
 
             except Exception as e:
-                logger.error(f"{channel_name} 发送失败: {e}")
+                logger.error(f"{channel_name} send failed: {e}")
                 fail_count += 1
                 channel_results.append(
                     ChannelAttemptResult(
@@ -2893,7 +3141,7 @@ class NotificationService(
                     )
                 )
 
-        logger.info(f"通知发送完成：成功 {success_count} 个，失败 {fail_count} 个")
+        logger.info(f"Notification dispatch finished: {success_count} succeeded, {fail_count} failed")
         if success_count > 0:
             self.record_noise_control(noise_decision)
         else:
@@ -2973,7 +3221,7 @@ class NotificationService(
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
 
-        logger.info(f"日报已保存到: {filepath}")
+        logger.info(f"Report saved to: {filepath}")
         return str(filepath)
 
     def save_and_send_feishu_file(
@@ -2998,7 +3246,7 @@ class NotificationService(
             strip_hidden_markdown_metadata(content).strip(),
             filename=filename,
         )
-        logger.info("将上传文件到飞书: %s", filepath)
+        logger.info("Uploading file to Feishu: %s", filepath)
         return self.send_feishu_file(filepath)
 
 
@@ -3108,62 +3356,62 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     from src.analyzer import AnalysisResult
 
-    # 模拟分析结果
+    # Mock analysis results
     test_results = [
         AnalysisResult(
             code='600519',
-            name='贵州茅台',
+            name='Kweichow Moutai',
             sentiment_score=75,
-            trend_prediction='看多',
-            analysis_summary='技术面强势，消息面利好',
-            operation_advice='买入',
-            technical_analysis='放量突破 MA20，MACD 金叉',
-            news_summary='公司发布分红公告，业绩超预期',
+            trend_prediction='Bullish',
+            analysis_summary='Strong technicals, favorable news flow',
+            operation_advice='Buy',
+            technical_analysis='Breakout above MA20 on volume, MACD golden cross',
+            news_summary='Company announced dividend, earnings beat expectations',
         ),
         AnalysisResult(
             code='000001',
-            name='平安银行',
+            name='Ping An Bank',
             sentiment_score=45,
-            trend_prediction='震荡',
-            analysis_summary='横盘整理，等待方向',
-            operation_advice='持有',
-            technical_analysis='均线粘合，成交量萎缩',
-            news_summary='近期无重大消息',
+            trend_prediction='Sideways',
+            analysis_summary='Range-bound, awaiting direction',
+            operation_advice='Hold',
+            technical_analysis='Moving averages converging, volume shrinking',
+            news_summary='No major news recently',
         ),
         AnalysisResult(
             code='300750',
-            name='宁德时代',
+            name='CATL',
             sentiment_score=35,
-            trend_prediction='看空',
-            analysis_summary='技术面走弱，注意风险',
-            operation_advice='卖出',
-            technical_analysis='跌破 MA10 支撑，量能不足',
-            news_summary='行业竞争加剧，毛利率承压',
+            trend_prediction='Bearish',
+            analysis_summary='Weakening technicals, watch for downside risk',
+            operation_advice='Sell',
+            technical_analysis='Broke below MA10 support, insufficient volume',
+            news_summary='Intensifying industry competition, gross margin under pressure',
         ),
     ]
 
     service = NotificationService()
 
-    # 显示检测到的渠道
-    print("=== 通知渠道检测 ===")
-    print(f"当前渠道: {service.get_channel_names()}")
-    print(f"渠道列表: {service.get_available_channels()}")
-    print(f"服务可用: {service.is_available()}")
+    # Show detected channels
+    print("=== Notification Channel Detection ===")
+    print(f"Current channels: {service.get_channel_names()}")
+    print(f"Available channels: {service.get_available_channels()}")
+    print(f"Service available: {service.is_available()}")
 
-    # 生成日报
-    print("\n=== 生成日报测试 ===")
+    # Generate daily report
+    print("\n=== Daily Report Generation Test ===")
     report = service.generate_daily_report(test_results)
     print(report)
 
-    # 保存到文件
-    print("\n=== 保存日报 ===")
+    # Save to file
+    print("\n=== Save Report ===")
     filepath = service.save_report_to_file(report)
-    print(f"保存成功: {filepath}")
+    print(f"Saved: {filepath}")
 
-    # 推送测试
+    # Push test
     if service.is_available():
-        print(f"\n=== 推送测试（{service.get_channel_names()}）===")
+        print(f"\n=== Push Test ({service.get_channel_names()}) ===")
         success = service.send(report)
-        print(f"推送结果: {'成功' if success else '失败'}")
+        print(f"Push result: {'success' if success else 'failed'}")
     else:
-        print("\n通知渠道未配置，跳过推送测试")
+        print("\nNo notification channel configured, skipping push test")

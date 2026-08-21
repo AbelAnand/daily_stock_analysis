@@ -45,21 +45,25 @@ describe('StockHistoryTrendDrawer', () => {
   });
 
   it('uses structured action in summary and rows', () => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+
     render(
-      <StockHistoryTrendDrawer
-        report={report}
-        items={items}
-        total={1}
-        hasMore={false}
-        isLoading={false}
-        isLoadingMore={false}
-        filters={{ range: 'all', model: 'all', sort: 'desc' }}
-        onClose={vi.fn()}
-        onRangeChange={vi.fn()}
-        onLoadMore={vi.fn()}
-        onSelectRecord={vi.fn()}
-        onRetry={vi.fn()}
-      />,
+      <UiLanguageProvider>
+        <StockHistoryTrendDrawer
+          report={report}
+          items={items}
+          total={1}
+          hasMore={false}
+          isLoading={false}
+          isLoadingMore={false}
+          filters={{ range: 'all', model: 'all', sort: 'desc' }}
+          onClose={vi.fn()}
+          onRangeChange={vi.fn()}
+          onLoadMore={vi.fn()}
+          onSelectRecord={vi.fn()}
+          onRetry={vi.fn()}
+        />
+      </UiLanguageProvider>,
     );
 
     expect(screen.getAllByText('回避').length).toBeGreaterThanOrEqual(2);

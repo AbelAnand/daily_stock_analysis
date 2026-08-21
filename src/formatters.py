@@ -12,7 +12,7 @@ from typing import Callable, List, Optional
 
 import markdown2
 
-TRUNCATION_SUFFIX = "\n\n...(本段内容过长已截断)"
+TRUNCATION_SUFFIX = "\n\n...(truncated: section too long)"
 PAGE_MARKER_PREFIX = f"\n\n📄"
 PAGE_MARKER_SAFE_BYTES = 16 # "\n\n📄 9999/9999"
 PAGE_MARKER_SAFE_LEN = 13   # "\n\n📄 9999/9999"
@@ -376,7 +376,7 @@ def chunk_markdown_preserving_blocks(
 
     measure = len_fn or len
     if max_units < MIN_MAX_WORDS:
-        raise ValueError(f"max_units={max_units} < {MIN_MAX_WORDS}, 可能陷入无限递归。")
+        raise ValueError(f"max_units={max_units} < {MIN_MAX_WORDS}, may cause infinite recursion.")
     if measure(content) <= max_units:
         return [content]
 
@@ -595,7 +595,7 @@ def _chunk_by_max_bytes(content: str, max_bytes: int) -> List[str]:
     if _bytes(content) <= max_bytes:
         return [content]
     if max_bytes < MIN_MAX_BYTES:
-        raise ValueError(f"max_bytes={max_bytes} < {MIN_MAX_BYTES}, 可能陷入无限递归。")
+        raise ValueError(f"max_bytes={max_bytes} < {MIN_MAX_BYTES}, may cause infinite recursion.")
     
     sections: List[str] = []
     suffix = TRUNCATION_SUFFIX
@@ -630,7 +630,7 @@ def chunk_content_by_max_bytes(content: str, max_bytes: int, add_page_marker: bo
     def _chunk(content: str, max_bytes: int) -> List[str]:
         # 优先按分隔线/标题分割，保证分页自然
         if max_bytes < MIN_MAX_BYTES:
-            raise ValueError(f"max_bytes={max_bytes} < {MIN_MAX_BYTES}, 可能陷入无限递归。")
+            raise ValueError(f"max_bytes={max_bytes} < {MIN_MAX_BYTES}, may cause infinite recursion.")
         
         if _bytes(content) <= max_bytes:
             return [content]
@@ -990,7 +990,7 @@ def _chunk_by_max_words(content: str, max_words: int, special_char_len: int = 2)
         return [content]
     if max_words < MIN_MAX_WORDS:
         raise ValueError(
-            f"max_words={max_words} < {MIN_MAX_WORDS}, 可能陷入无限递归。"
+            f"max_words={max_words} < {MIN_MAX_WORDS}, may cause infinite recursion."
         )
 
     sections = []
@@ -1034,7 +1034,7 @@ def chunk_content_by_max_words(
             # Safe guard，避免无限递归
             # 理论上，max_words在每次递归中可以减小到无限小，但实际中不太可能发生，
             # 除非每次_chunk_by_separators都能成功返回分隔符，且max_words初始值太小。
-            raise ValueError(f"max_words={max_words} < {MIN_MAX_WORDS}, 可能陷入无限递归。")
+            raise ValueError(f"max_words={max_words} < {MIN_MAX_WORDS}, may cause infinite recursion.")
         
         if _effective_len(content, special_char_len) <= max_words:
             return [content]

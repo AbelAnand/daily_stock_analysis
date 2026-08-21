@@ -380,6 +380,20 @@ def _extract_guardrail_reason(
                 ]
             )
         hints = (
+            "wait",
+            "pending",
+            "needs confirmation",
+            "lacks confirmation",
+            "unconfirmed",
+            "pullback",
+            "support",
+            "resistance",
+            "risk",
+            "capital flow",
+            "breakout",
+            "don't chase",
+            "not advisable",
+            # Chinese-language report content uses these equivalents (report_language="zh").
             "等待",
             "待",
             "需要确认",

@@ -1,7 +1,21 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
+import { fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HistoryList } from '../HistoryList';
 import type { HistoryItem } from '../../../types/analysis';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
+
+// HistoryList always renders inside UiLanguageProvider in the real app; without it,
+// useUiLanguage() falls back to the English default. Seed the stored preference as
+// 'zh' and wrap every render so these tests keep exercising the Chinese copy they assert on.
+function render(ui: ReactElement) {
+  return rtlRender(<UiLanguageProvider>{ui}</UiLanguageProvider>);
+}
+
+beforeEach(() => {
+  window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+});
 
 const baseProps = {
   isLoading: false,

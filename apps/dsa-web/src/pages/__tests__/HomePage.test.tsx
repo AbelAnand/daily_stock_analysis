@@ -254,9 +254,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const dashboard = await screen.findByTestId('home-dashboard');
@@ -287,9 +289,11 @@ describe('HomePage', () => {
     vi.mocked(historyApi.getMarkdown).mockResolvedValue('# Full Markdown Report');
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const fullReportButton = await screen.findByRole('button', {
@@ -314,9 +318,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(await screen.findByText('开始分析')).toBeInTheDocument();
@@ -352,9 +358,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '查看 贵州茅台 运行流' }));
@@ -376,9 +384,11 @@ describe('HomePage', () => {
     vi.mocked(historyApi.getDetail).mockResolvedValue(historyReport);
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByText('运行状态'));
@@ -424,9 +434,11 @@ describe('HomePage', () => {
     vi.mocked(historyApi.getDetail).mockResolvedValue(marketReviewHistoryReport);
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(await screen.findByRole('button', { name: /MARKET/ })).toBeInTheDocument();
@@ -470,9 +482,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -516,9 +530,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -557,9 +573,11 @@ describe('HomePage', () => {
     vi.mocked(systemConfigApi.removeFromWatchlist).mockResolvedValue([]);
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -596,9 +614,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -648,9 +668,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -730,9 +752,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -802,9 +826,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -861,9 +887,11 @@ describe('HomePage', () => {
     ));
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -983,9 +1011,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -1041,9 +1071,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     await waitFor(() => expect(pending.size).toBe(4));
@@ -1108,9 +1140,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -1201,9 +1235,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -1269,9 +1305,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -1344,9 +1382,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -1427,9 +1467,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -1460,9 +1502,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -1517,9 +1561,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -1604,9 +1650,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '今日' }));
@@ -1666,9 +1714,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const collapseButton = await screen.findByRole('button', { name: '折叠任务面板' });
@@ -1748,9 +1798,11 @@ describe('HomePage', () => {
       });
 
       render(
-        <MemoryRouter>
-          <HomePage />
-        </MemoryRouter>,
+        <UiLanguageProvider>
+          <MemoryRouter>
+            <HomePage />
+          </MemoryRouter>
+        </UiLanguageProvider>,
       );
 
       expect(await screen.findByTestId('task-panel-collapsed-summary')).toHaveTextContent('1 进行中');
@@ -1807,9 +1859,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '今日' }));
@@ -1852,9 +1906,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '今日' }));
@@ -1918,9 +1974,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '今日' }));
@@ -1972,9 +2030,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '今日' }));
@@ -2006,9 +2066,11 @@ describe('HomePage', () => {
     }));
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -2041,9 +2103,11 @@ describe('HomePage', () => {
       .mockRejectedValueOnce(new Error('gateway timeout'));
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -2052,7 +2116,7 @@ describe('HomePage', () => {
 
     const status = await screen.findByText(/已确认提交 45 个任务，5 个正在运行；另有 1 只未确认/);
     expect(status).toHaveTextContent('已停止后续提交并刷新任务列表');
-    expect(status).toHaveTextContent('服务端访问外部依赖时超时');
+    expect(status).toHaveTextContent('The server timed out while accessing an external dependency');
     expect(analysisApi.analyzeAsync).toHaveBeenCalledTimes(2);
     expect(vi.mocked(analysisApi.getTasks).mock.calls.length).toBeGreaterThan(taskRefreshCallsBeforeSubmit);
   });
@@ -2070,9 +2134,11 @@ describe('HomePage', () => {
     }));
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -2090,16 +2156,18 @@ describe('HomePage', () => {
     vi.mocked(analysisApi.analyzeAsync).mockRejectedValueOnce(new Error('gateway timeout'));
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
     const taskRefreshCallsBeforeSubmit = vi.mocked(analysisApi.getTasks).mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: '分析全部' }));
 
-    expect(await screen.findByText(/服务端访问外部依赖时超时/)).toBeInTheDocument();
+    expect(await screen.findByText(/The server timed out while accessing an external dependency/)).toBeInTheDocument();
     expect(screen.queryByText(/已确认提交/)).not.toBeInTheDocument();
     expect(analysisApi.analyzeAsync).toHaveBeenCalledTimes(1);
     expect(vi.mocked(analysisApi.getTasks).mock.calls.length).toBeGreaterThan(taskRefreshCallsBeforeSubmit);
@@ -2112,9 +2180,11 @@ describe('HomePage', () => {
     );
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '自选' }));
@@ -2152,9 +2222,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(await screen.findByRole('button', { name: /MARKET/ })).toBeInTheDocument();
@@ -2179,9 +2251,11 @@ describe('HomePage', () => {
     );
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const input = await screen.findByPlaceholderText('输入股票代码或名称，如 600519、贵州茅台、AAPL');
@@ -2203,9 +2277,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     await screen.findByPlaceholderText('输入股票代码或名称，如 600519、贵州茅台、AAPL');
@@ -2232,9 +2308,11 @@ describe('HomePage', () => {
       });
 
       render(
-        <MemoryRouter>
-          <HomePage />
-        </MemoryRouter>,
+        <UiLanguageProvider>
+          <MemoryRouter>
+            <HomePage />
+          </MemoryRouter>
+        </UiLanguageProvider>,
       );
 
       await act(async () => {
@@ -2273,9 +2351,11 @@ describe('HomePage', () => {
       });
 
       render(
-        <MemoryRouter>
-          <HomePage />
-        </MemoryRouter>,
+        <UiLanguageProvider>
+          <MemoryRouter>
+            <HomePage />
+          </MemoryRouter>
+        </UiLanguageProvider>,
       );
 
       await act(async () => {
@@ -2337,9 +2417,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const regionSelector = await screen.findByRole('button', { name: '选择大盘复盘市场' });
@@ -2382,9 +2464,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '选择大盘复盘市场' }));
@@ -2490,9 +2574,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '大盘复盘' }));
@@ -2524,9 +2610,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     await screen.findByText('趋势维持强势');
@@ -2621,9 +2709,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '大盘复盘' }));
@@ -2677,9 +2767,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(await screen.findByText('基础配置未完成')).toBeInTheDocument();
@@ -2698,9 +2790,11 @@ describe('HomePage', () => {
     vi.mocked(historyApi.getDetail).mockResolvedValue(historyReport);
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const followUpButton = await screen.findByRole('button', { name: '追问 AI' });
@@ -2720,9 +2814,11 @@ describe('HomePage', () => {
     });
 
     const { container } = render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const trigger = await screen.findByRole('button', { name: '历史记录' });
@@ -2783,9 +2879,11 @@ describe('HomePage', () => {
     vi.mocked(historyApi.getDetail).mockResolvedValue(staleReport);
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const historyTrendButton = await screen.findByRole('button', { name: '历史趋势' });
@@ -2842,9 +2940,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     expect(await screen.findByText('分析任务')).toBeInTheDocument();
@@ -2865,9 +2965,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     // Wait for the report to load
@@ -2910,9 +3012,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '策略' }));
@@ -2946,9 +3050,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     const trigger = await screen.findByRole('button', { name: '策略' });
@@ -2996,9 +3102,11 @@ describe('HomePage', () => {
     ].join('\n'));
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     await screen.findByText('大盘复盘摘要');
@@ -3082,9 +3190,11 @@ describe('HomePage', () => {
     });
 
     render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
+      <UiLanguageProvider>
+        <MemoryRouter>
+          <HomePage />
+        </MemoryRouter>
+      </UiLanguageProvider>,
     );
 
     await screen.findByText('趋势维持强势');

@@ -69,7 +69,8 @@ _POSTER_TEXT = {
         "strategy": "明日策略", "risks": "风险提示", "tagline": "让股票研究更简单、更高效",
         "open_source": "开源项目 · GitHub", "xiaohongshu": "小红书",
         "disclaimer": "AI 生成，仅供研究交流，不构成投资建议。市场有风险，决策需谨慎。",
-        "source": "数据源",
+        "source": "数据源", "product_name": "股票智能分析系统", "generic_stock_title": "个股分析",
+        "report_title_full": "股票智能分析报告",
     },
     "en": {
         "brand": "AI Stock Analysis", "stock_subtitle": "Stock decision card · thesis, levels, and risks",
@@ -86,7 +87,8 @@ _POSTER_TEXT = {
         "strategy": "Next-session Plan", "risks": "Risk Alerts", "tagline": "Make stock research simpler and more efficient",
         "open_source": "Open Source · GitHub", "xiaohongshu": "Xiaohongshu",
         "disclaimer": "AI-generated for research only; not investment advice. Markets involve risk.",
-        "source": "Source",
+        "source": "Source", "product_name": "Stock Intelligence System", "generic_stock_title": "Stock Analysis",
+        "report_title_full": "Stock Intelligence Report",
     },
     "ko": {
         "brand": "AI 주식 분석", "stock_subtitle": "종목 의사결정 카드 · 결론, 가격대, 리스크",
@@ -103,7 +105,8 @@ _POSTER_TEXT = {
         "strategy": "다음 거래일 전략", "risks": "리스크 경고", "tagline": "주식 리서치를 더 쉽고 효율적으로",
         "open_source": "오픈소스 · GitHub", "xiaohongshu": "샤오홍슈",
         "disclaimer": "AI 생성 연구 자료이며 투자 조언이 아닙니다. 투자에는 위험이 따릅니다.",
-        "source": "데이터 소스",
+        "source": "데이터 소스", "product_name": "주식 인텔리전스 시스템", "generic_stock_title": "종목 분석",
+        "report_title_full": "주식 인텔리전스 리포트",
     },
 }
 _POSTER_LABELS = {
@@ -358,11 +361,13 @@ def _poster_language(
         re.IGNORECASE,
     ):
         return "en"
-    return "zh"
+    if re.search(r"[一-鿿]", markdown_text or ""):
+        return "zh"
+    return "en"
 
 
 def _poster_text(language: str, key: str) -> str:
-    return _POSTER_TEXT.get(language, _POSTER_TEXT["zh"]).get(key, _POSTER_TEXT["zh"].get(key, key))
+    return _POSTER_TEXT.get(language, _POSTER_TEXT["en"]).get(key, _POSTER_TEXT["en"].get(key, key))
 
 
 def _poster_label(language: str, label: str) -> str:
@@ -606,12 +611,19 @@ def _price_tokens(value: object) -> list[str]:
     return re.findall(r"(?<![A-Za-z\d])(\d+(?:\.\d+)?)(?!\d|%)", text)
 
 
-def _compact_sniper_value(key: str, value: object) -> str:
+_SNIPER_NO_ENTRY_TOKENS = (
+    "暂无", "暂不", "不满足", "not available", "not yet", "insufficient", "no clear", "not met",
+)
+
+_SNIPER_WAITING_TEXT = {"zh": "等待企稳", "en": "Awaiting stabilization", "ko": "안정화 대기"}
+
+
+def _compact_sniper_value(key: str, value: object, language: str = "en") -> str:
     text = _clean_value(value, limit=120)
     if not text:
         return ""
-    if key == "ideal_buy" and any(token in text for token in ("暂无", "暂不", "不满足")):
-        return "等待企稳"
+    if key == "ideal_buy" and any(token in text.lower() for token in _SNIPER_NO_ENTRY_TOKENS):
+        return _SNIPER_WAITING_TEXT.get(language, _SNIPER_WAITING_TEXT["en"])
     prices = _price_tokens(text)
     if not prices:
         return _compact_text(text, limit=18)
@@ -620,27 +632,45 @@ def _compact_sniper_value(key: str, value: object) -> str:
     return prices[0]
 
 
-def _compact_position(value: object, *, holding: bool) -> str:
+_STOP_BELOW_RE = re.compile(
+    r"(?:跌破|(?:break(?:s|ing)?|stop(?:\s+loss)?|falls?)\s+below)\s*(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+
+_POSITION_TEXT = {
+    "zh": {"reduce_at": "反弹至 {price} 附近减仓", "reduce": "反弹减仓", "stop": "跌破 {price} 止损",
+           "join": "；", "wait_at": "等待 {levels} 附近企稳", "wait": "等待右侧企稳信号", "no_entry": "暂不建仓"},
+    "en": {"reduce_at": "Reduce near {price} on a rebound", "reduce": "Reduce on rebound", "stop": "Stop loss below {price}",
+           "join": "; ", "wait_at": "Wait for stabilization near {levels}", "wait": "Wait for a stabilization signal", "no_entry": "Not entering yet"},
+    "ko": {"reduce_at": "{price} 부근 반등 시 비중 축소", "reduce": "반등 시 비중 축소", "stop": "{price} 이탈 시 손절",
+           "join": "; ", "wait_at": "{levels} 부근 안정화 대기", "wait": "안정화 신호 대기", "no_entry": "아직 진입 보류"},
+}
+
+
+def _compact_position(value: object, *, holding: bool, language: str = "en") -> str:
     text = _clean_value(value, limit=150)
     if not text:
         return ""
+    copy = _POSITION_TEXT.get(language, _POSITION_TEXT["en"])
     prices = _price_tokens(text)
     if holding and prices:
-        stop_match = re.search(r"跌破\s*(\d+(?:\.\d+)?)", text)
+        stop_match = _STOP_BELOW_RE.search(text)
         reduce_at = next((price for price in prices if price != (stop_match.group(1) if stop_match else "")), "")
+        lowered = text.lower()
         parts = []
-        if "减仓" in text:
-            parts.append(f"反弹至 {reduce_at} 附近减仓" if reduce_at else "反弹减仓")
+        if "减仓" in text or "reduce" in lowered or "trim" in lowered:
+            parts.append(copy["reduce_at"].format(price=reduce_at) if reduce_at else copy["reduce"])
         if stop_match:
-            parts.append(f"跌破 {stop_match.group(1)} 止损")
+            parts.append(copy["stop"].format(price=stop_match.group(1)))
         if parts:
-            return "；".join(parts)
+            return copy["join"].join(parts)
     if not holding:
-        if "等待" in text or "企稳" in text:
+        lowered = text.lower()
+        if "等待" in text or "企稳" in text or "wait" in lowered or "stabiliz" in lowered:
             levels = " / ".join(prices[:2])
-            return f"等待 {levels} 附近企稳" if levels else "等待右侧企稳信号"
-        if "不" in text and any(term in text for term in ("建仓", "接", "买入")):
-            return "暂不建仓"
+            return copy["wait_at"].format(levels=levels) if levels else copy["wait"]
+        if ("不" in text and any(term in text for term in ("建仓", "接", "买入"))) or "not enter" in lowered:
+            return copy["no_entry"]
     return _compact_text(text, limit=40)
 
 
@@ -945,11 +975,15 @@ def _market_segments(markdown_text: str) -> list[MarketSegment]:
 
 
 def _stock_data(markdown_text: str, generated_on: date) -> StockPoster:
+    language = _poster_language(markdown_text)
     headings = _stock_headings(markdown_text)
     if headings:
         name, code = headings[0]
     else:
-        first_title = next((title for title, _body, _level in _extract_sections(markdown_text)), "个股分析")
+        first_title = next(
+            (title for title, _body, _level in _extract_sections(markdown_text)),
+            _poster_text(language, "generic_stock_title"),
+        )
         entry = _stock_heading_entry(first_title)
         if entry:
             name, code = entry
@@ -998,8 +1032,8 @@ def _stock_data(markdown_text: str, generated_on: date) -> StockPoster:
         conclusion = _clean_value(match.group(1), limit=110) if match else ""
 
     poster = StockPoster(
-        title=name or "个股分析",
-        language=_poster_language(markdown_text),
+        title=name or _poster_text(language, "generic_stock_title"),
+        language=language,
         code=code,
         report_date=_extract_date(markdown_text, generated_on),
         action=action_value,
@@ -1078,7 +1112,7 @@ def _stock_data(markdown_text: str, generated_on: date) -> StockPoster:
             "止损": "stop_loss",
             "目标": "take_profit",
         }[display]
-        value = _compact_sniper_value(key, raw_value)
+        value = _compact_sniper_value(key, raw_value, language)
         if value:
             poster.sniper.append(("确认买入" if display == "次优买入" else display, value, tone))
 
@@ -1109,8 +1143,8 @@ def _stock_data(markdown_text: str, generated_on: date) -> StockPoster:
         poster.no_position = _labeled_value(position_section, "空仓者", "no position", limit=90)
     if not poster.has_position:
         poster.has_position = _labeled_value(position_section, "持仓者", "holding", limit=90)
-    poster.no_position = _compact_position(poster.no_position, holding=False)
-    poster.has_position = _compact_position(poster.has_position, holding=True)
+    poster.no_position = _compact_position(poster.no_position, holding=False, language=language)
+    poster.has_position = _compact_position(poster.has_position, holding=True, language=language)
     return poster
 
 
@@ -1223,7 +1257,7 @@ def _stock_data_from_payload(
         ("stop_loss", "止损", "stop"),
         ("take_profit", "目标", "target"),
     ):
-        value = _compact_sniper_value(key, sniper.get(key))
+        value = _compact_sniper_value(key, sniper.get(key), poster.language)
         if value:
             payload_sniper.append((label, value, tone))
     poster.sniper = _merge_metrics(poster.sniper, payload_sniper)
@@ -1252,11 +1286,11 @@ def _stock_data_from_payload(
         poster.watch_items = payload_watch_items
 
     poster.no_position = (
-        _compact_position(position_advice.get("no_position"), holding=False)
+        _compact_position(position_advice.get("no_position"), holding=False, language=poster.language)
         or poster.no_position
     )
     poster.has_position = (
-        _compact_position(position_advice.get("has_position"), holding=True)
+        _compact_position(position_advice.get("has_position"), holding=True, language=poster.language)
         or poster.has_position
     )
     # The full report keeps sizing, entry and risk-control prose.  The share
@@ -1267,6 +1301,20 @@ def _stock_data_from_payload(
     return poster
 
 
+_MARKET_REGION_NAME = {
+    "en": {"A股": "China A-Shares", "港股": "Hong Kong", "美股": "US", "日股": "Japan", "韩股": "Korea"},
+    "ko": {"A股": "중국 A주", "港股": "홍콩", "美股": "미국", "日股": "일본", "韩股": "한국"},
+}
+
+_MARKET_REVIEW_TITLE_TEMPLATE = {"zh": "{region}市场复盘", "en": "{region} Market Review", "ko": "{region} 시황 리뷰"}
+
+
+def _market_review_title(market: str, language: str) -> str:
+    region = _MARKET_REGION_NAME.get(language, {}).get(market, market)
+    template = _MARKET_REVIEW_TITLE_TEMPLATE.get(language, _MARKET_REVIEW_TITLE_TEMPLATE["en"])
+    return template.format(region=region)
+
+
 def _market_title(markdown_text: str) -> str:
     first_title = next((title for title, _body, _level in _extract_sections(markdown_text)), "")
     language = _poster_language(markdown_text)
@@ -1274,16 +1322,16 @@ def _market_title(markdown_text: str) -> str:
         return first_title
     market = _market_label(first_title)
     if market:
-        return f"{market}市场复盘"
+        return _market_review_title(market, language)
     hinted_market = _market_label_for_region(_market_region_hint(markdown_text))
     if hinted_market:
-        return f"{hinted_market}市场复盘"
+        return _market_review_title(hinted_market, language)
     market = _market_label(markdown_text[:600])
     if market:
-        return f"{market}市场复盘"
+        return _market_review_title(market, language)
     if _is_market_review_title(first_title):
         return first_title
-    return "A股市场复盘"
+    return _market_review_title("A股", language)
 
 
 def _parsed_breadth_metrics(overview: str) -> list[tuple[str, str]]:
@@ -1377,24 +1425,45 @@ def _direction_items(value: object, *, limit: int = 2) -> list[str]:
     return items
 
 
-def _market_fund_metrics(markdown_text: str) -> list[tuple[str, str, str]]:
+_FUND_METRIC_LABELS = {
+    "zh": {"ratio": "涨跌比", "increment": "增量成交", "style": "资金风格"},
+    "en": {"ratio": "Adv/Decl Ratio", "increment": "Volume Increase", "style": "Fund Style"},
+    "ko": {"ratio": "등락비", "increment": "거래대금 증가", "style": "자금 스타일"},
+}
+_FUND_STYLE_VALUE = {
+    "zh": "科技主导·高位分歧",
+    "en": "Tech-led, diverging at highs",
+    "ko": "기술주 주도·고점 분화",
+}
+
+
+def _market_fund_metrics(markdown_text: str, language: str = "en") -> list[tuple[str, str, str]]:
     section = _section(markdown_text, "资金与情绪", "fund flows", "liquidity & sentiment")
     if not section:
         return []
+    fund_labels = _FUND_METRIC_LABELS.get(language, _FUND_METRIC_LABELS["en"])
     metrics: list[tuple[str, str, str]] = []
     ratio = re.search(r"涨跌比(?:接近|约为|约)?\s*([\d.]+\s*:\s*[\d.]+)", section)
     if ratio:
-        metrics.append(("涨跌比", ratio.group(1).replace(" ", ""), "positive"))
+        metrics.append((fund_labels["ratio"], ratio.group(1).replace(" ", ""), "positive"))
     increment = re.search(
         r"较前(?:一交易日|日).*?放量(?:超|逾)?\s*([\d.]+)\s*亿元",
         section,
     )
     if increment:
-        metrics.append(("增量成交", f"+{increment.group(1)}亿", "primary"))
+        amount = increment.group(1)
+        if language == "en":
+            increment_value = f"+¥{float(amount) * 100:.0f}M"
+        elif language == "ko":
+            increment_value = f"+{amount}억"
+        else:
+            increment_value = f"+{amount}亿"
+        metrics.append((fund_labels["increment"], increment_value, "primary"))
     if any(term in section for term in ("科技", "科创", "半导体")) and any(
         term in section for term in ("分歧", "冲高回落", "兑现")
     ):
-        metrics.append(("资金风格", "科技主导·高位分歧", "warning"))
+        style_value = _FUND_STYLE_VALUE.get(language, _FUND_STYLE_VALUE["en"])
+        metrics.append((fund_labels["style"], style_value, "warning"))
     return metrics[:3]
 
 
@@ -1555,11 +1624,20 @@ def _market_data(markdown_text: str, generated_on: date) -> MarketPoster:
     poster.avoid = _direction_items(
         _labeled_value(plan_section, "回避方向", "avoid", "회피 방향", limit=220)
     )
-    poster.funds = _market_fund_metrics(markdown_text)
-    for label in ("结论", "仓位区间", "触发失效条件", "결론", "비중 구간", "무효화 조건"):
-        value = _labeled_value(plan_section, label, limit=86)
+    poster.funds = _market_fund_metrics(markdown_text, poster.language)
+    plan_colon = "：" if poster.language == "zh" else ": "
+    for search_terms, display_by_language in (
+        (("结论", "conclusion", "결론"), {"zh": "结论", "en": "Conclusion", "ko": "결론"}),
+        (("仓位区间", "position range", "비중 구간"), {"zh": "仓位区间", "en": "Position Range", "ko": "비중 구간"}),
+        (
+            ("触发失效条件", "invalidation condition", "무효화 조건"),
+            {"zh": "触发失效条件", "en": "Invalidation Condition", "ko": "무효화 조건"},
+        ),
+    ):
+        value = _labeled_value(plan_section, *search_terms, limit=86)
         if value:
-            poster.plan.append(_compact_text(f"{label}：{value}", limit=32))
+            display_label = display_by_language.get(poster.language, display_by_language["en"])
+            poster.plan.append(_compact_text(f"{display_label}{plan_colon}{value}", limit=32))
         if len(poster.plan) >= 3:
             break
     if not poster.plan:
@@ -2023,7 +2101,7 @@ def _footer(branding: ShareImageBranding, source_line: str, language: str) -> st
     return f"""
     <footer class="poster-footer">
       <div class="{brand_class}">
-        <div class="footer-title"><strong>DSA</strong><span>{_escape(PROJECT_DISPLAY_NAME)}</span></div>
+        <div class="footer-title"><strong>DSA</strong><span>{_escape(_poster_text(language, "product_name"))}</span></div>
         <small>{_escape(_poster_text(language, "tagline"))}</small>
         <div class="repo-line">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.51-2.01.38-2.53-.5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.21-3.64-.91-3.64-4.02 0-.89.31-1.62.82-2.19-.08-.21-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.45 7.45 0 0 1 8 3.91c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.95.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.02.29.25.54.74.54 1.5 0 1.08-.01 1.95-.01 2.22 0 .22.15.47.55.39A8.15 8.15 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/></svg>
@@ -2053,7 +2131,7 @@ def build_share_image_html(
     generated = generated_on or date.today()
     language = _poster_language(markdown_text, structured_payload)
     headings = _extract_sections(markdown_text)
-    first_title = headings[0][0] if headings else "股票智能分析报告"
+    first_title = headings[0][0] if headings else _poster_text(language, "report_title_full")
     stock_headings = _stock_headings(markdown_text)
     market_segments = _market_segments(markdown_text)
     candidate_market_titles = headings[:2]

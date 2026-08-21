@@ -35,7 +35,7 @@ CN_PROFILE = MarketProfile(
         "股市 行情 分析",
         "A股 市场 热点 板块",
     ],
-    prompt_index_hint="分析上证、深证、创业板等各指数走势特点",
+    prompt_index_hint="Analyze the price action in the SSE, SZSE, ChiNext, and other major indices.",
     has_market_stats=True,
     has_sector_rankings=True,
 )
@@ -48,7 +48,7 @@ US_PROFILE = MarketProfile(
         "US stock market",
         "S&P 500 NASDAQ",
     ],
-    prompt_index_hint="分析标普500、纳斯达克、道指等各指数走势特点",
+    prompt_index_hint="Analyze the key moves in the S&P 500, Nasdaq, Dow, and other major indices.",
     has_market_stats=False,
     has_sector_rankings=False,
 )
@@ -61,7 +61,7 @@ HK_PROFILE = MarketProfile(
         "Hong Kong stock market",
         "恒生指数 行情",
     ],
-    prompt_index_hint="分析恒生指数、恒生科技指数、国企指数等各指数走势特点",
+    prompt_index_hint="Analyze the key moves in the HSI, Hang Seng Tech, HSCEI, and other major indices.",
     has_market_stats=False,
     has_sector_rankings=False,
 )
@@ -74,7 +74,7 @@ JP_PROFILE = MarketProfile(
         "Japan stock market Nikkei TOPIX",
         "日经225 东证指数 行情",
     ],
-    prompt_index_hint="分析日经225、东证指数等日本主要指数走势特点",
+    prompt_index_hint="Analyze the key moves in the Nikkei 225, TOPIX, and other major Japanese indices.",
     has_market_stats=False,
     has_sector_rankings=False,
 )
@@ -87,7 +87,7 @@ KR_PROFILE = MarketProfile(
         "Korea stock market KOSPI KOSDAQ",
         "KOSPI KOSDAQ 行情",
     ],
-    prompt_index_hint="分析 KOSPI、KOSDAQ 等韩国主要指数走势特点",
+    prompt_index_hint="Analyze the key moves in the KOSPI, KOSDAQ, and other major Korean indices.",
     has_market_stats=False,
     has_sector_rankings=False,
 )

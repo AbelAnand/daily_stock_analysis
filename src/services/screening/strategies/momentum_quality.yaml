@@ -2,8 +2,8 @@
 # Licensed under Apache-2.0 and modified for daily_stock_analysis.
 # 趋势质量策略
 name: momentum_quality
-display_name: 趋势质量
-description: 兼顾趋势确认和基本面质量的中线候选发现
+display_name: Trend Quality
+description: Medium-term candidate discovery balancing trend confirmation and fundamental quality
 version: "1.1"
 category: framework
 tags: [momentum, quality, trend, llm_friendly]
@@ -14,7 +14,7 @@ style:
   execution_style: trend_quality
   market_regime: [risk_on, trend, rotation]
   capital_profile: high_liquidity
-  ui_badge: 趋势
+  ui_badge: Trend
 
 screening:
   enabled: true
@@ -68,8 +68,8 @@ screening:
     volume_spike_ratio: 5.0
     hot_money_penalty: 2.5
   ranking_hints: |
-    优先关注：
-    1. 已经确认趋势但还没有进入极端追涨阶段的候选
-    2. 基本面质量（估值、资金活跃、稳定性）能为趋势提供支撑
-    3. 避免单一题材过度集中，兼顾不同风格的趋势机会
+    Priorities:
+    1. Candidates with a confirmed trend that have not entered the extreme chase phase
+    2. Fundamental quality (valuation, capital activity, stability) supports the trend
+    3. Avoid over-concentration in a single theme; balance trend opportunities across styles
   max_output: 5

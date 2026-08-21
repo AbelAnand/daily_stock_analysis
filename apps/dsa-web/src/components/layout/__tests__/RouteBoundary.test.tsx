@@ -2,7 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { lazy } from 'react';
 import type React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import { RouteOutletBoundary } from '../RouteBoundary';
 import { Shell } from '../Shell';
 
@@ -24,6 +26,10 @@ vi.mock('../../../stores/agentChatStore', () => {
 });
 
 describe('RouteOutletBoundary', () => {
+  beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+  });
+
   it('catches rejected lazy route imports inside the shell and resets on navigation', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const BrokenLazyRoute = lazy(() => (
@@ -32,20 +38,22 @@ describe('RouteOutletBoundary', () => {
 
     try {
       render(
-        <MemoryRouter initialEntries={['/chat']}>
-          <Routes>
-            <Route
-              element={(
-                <Shell>
-                  <RouteOutletBoundary />
-                </Shell>
-              )}
-            >
-              <Route path="/chat" element={<BrokenLazyRoute />} />
-              <Route path="/portfolio" element={<div data-testid="portfolio-page">Portfolio</div>} />
-            </Route>
-          </Routes>
-        </MemoryRouter>,
+        <UiLanguageProvider>
+          <MemoryRouter initialEntries={['/chat']}>
+            <Routes>
+              <Route
+                element={(
+                  <Shell>
+                    <RouteOutletBoundary />
+                  </Shell>
+                )}
+              >
+                <Route path="/chat" element={<BrokenLazyRoute />} />
+                <Route path="/portfolio" element={<div data-testid="portfolio-page">Portfolio</div>} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </UiLanguageProvider>,
       );
 
       expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument();

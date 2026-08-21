@@ -1,12 +1,24 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import type { ReactNode } from 'react';
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactElement, ReactNode } from 'react';
 import { UiLanguageProvider, useUiLanguage } from '../../../contexts/UiLanguageContext';
 import { getFieldDescriptionZh, getFieldTitleZh } from '../../../utils/systemConfigI18n';
 import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import { SettingsField } from '../SettingsField';
 
+function withLanguage(ui: ReactElement): ReactElement {
+  return <UiLanguageProvider>{ui}</UiLanguageProvider>;
+}
+
+function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(withLanguage(ui), options);
+}
+
 describe('SettingsField', () => {
+  beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+  });
+
   it('prefers localized Chinese field titles over backend schema titles', () => {
     render(
       <SettingsField
@@ -656,7 +668,7 @@ describe('SettingsField', () => {
         );
       };
 
-      render(
+      rtlRender(
         <UiLanguageProvider>
           <SchemaTitleSwitcher>
             <SettingsField

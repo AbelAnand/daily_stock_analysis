@@ -46,7 +46,7 @@ describe('UiLanguageContext', () => {
     })).toBe('en');
   });
 
-  it('falls back from invalid storage to the first supported browser language and then zh', () => {
+  it('defaults to English when storage is missing or invalid, regardless of browser language', () => {
     expect(resolveInitialUiLanguage({
       storage: createStorage('fr'),
       navigatorLike: { language: 'en-US', languages: ['en-US'] },
@@ -55,15 +55,20 @@ describe('UiLanguageContext', () => {
     expect(resolveInitialUiLanguage({
       storage: createStorage('fr'),
       navigatorLike: { language: 'zh-CN', languages: ['zh-CN', 'en-US'] },
-    })).toBe('zh');
+    })).toBe('en');
+
+    expect(resolveInitialUiLanguage({
+      storage: createStorage(null),
+      navigatorLike: { language: 'zh-CN', languages: ['zh-CN'] },
+    })).toBe('en');
 
     expect(resolveInitialUiLanguage({
       storage: createStorage(null),
       navigatorLike: { language: 'tr-TR', languages: ['tr-TR'] },
-    })).toBe('zh');
+    })).toBe('en');
   });
 
-  it('falls back to browser language if storage getItem throws', () => {
+  it('falls back to English if storage getItem throws', () => {
     const throwingStorage = createStorage('en');
     throwingStorage.getItem = () => {
       throw new Error('Storage getItem disabled');

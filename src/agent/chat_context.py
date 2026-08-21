@@ -28,21 +28,21 @@ from src.storage import get_db, persist_llm_usage
 logger = logging.getLogger(__name__)
 
 VISIBLE_ROLES = {"user", "assistant"}
-SUMMARY_USER_PREFIX = "[系统生成的历史对话摘要，仅供延续本会话]"
+SUMMARY_USER_PREFIX = "[System-generated summary of earlier conversation, for continuing this session only]"
 SUMMARY_LLM_TIMEOUT_SECONDS = 20
 
-SUMMARY_SYSTEM_PROMPT = """你是股票问答系统的会话压缩器，只能总结已经出现过的用户可见对话内容。
+SUMMARY_SYSTEM_PROMPT = """You are the conversation compressor for a stock Q&A system. You may only summarize user-visible conversation content that has already appeared.
 
-硬性规则：
-- 只总结已有对话，不新增行情、新闻、财务数据或投资建议。
-- 不推断未出现的事实，不补充新的买卖建议。
-- 必须保留标的、持仓成本、周期、风险偏好、策略视角、关键判断、操作条件、止损止盈、数据时效、工具失败和未决问题。
-- 输出必须使用 Markdown，并严格包含以下 5 个二级标题：
-  ## 会话摘要
-  ## 当前关注标的
-  ## 用户偏好与约束
-  ## 已有判断与操作条件
-  ## 风险、数据时效与未决问题
+Hard rules:
+- Summarize only the existing conversation; do not add quotes, news, financial data, or investment advice.
+- Do not infer facts that never appeared, and do not add new buy/sell advice.
+- Preserve the tickers, position cost, time horizon, risk appetite, strategy perspective, key judgments, action conditions, stop-loss / take-profit levels, data freshness, tool failures, and open questions.
+- Output must be Markdown and must contain exactly the following 5 second-level headings:
+  ## Session Summary
+  ## Current Focus Tickers
+  ## User Preferences and Constraints
+  ## Existing Judgments and Action Conditions
+  ## Risks, Data Freshness, and Open Questions
 """
 
 
@@ -107,8 +107,8 @@ def build_summary_messages(
     """Build the text-only summary request messages."""
     sections: List[str] = []
     if previous_summary.strip():
-        sections.append("已有滚动摘要：\n" + previous_summary.strip())
-    sections.append("本次需要纳入摘要的新增对话：")
+        sections.append("Existing rolling summary:\n" + previous_summary.strip())
+    sections.append("New conversation to fold into the summary:")
     sections.append(_render_visible_messages(messages))
     user_payload = "\n\n".join(sections).strip()
     return [

@@ -65,11 +65,11 @@ def _load_futu_api() -> _FutuApi:
         )
     except ImportError as exc:
         raise FutuPortfolioError(
-            "未安装 Futu OpenAPI SDK；请先执行 "
-            "`pip install \"futu-api==10.8.6808\"`。"
+            "Futu OpenAPI SDK is not installed; please run "
+            "`pip install \"futu-api==10.8.6808\"` first."
         ) from exc
     except Exception as exc:  # noqa: BLE001 - SDK import initializes its file logger
-        raise FutuPortfolioError(f"加载 Futu OpenAPI SDK 失败: {exc}") from exc
+        raise FutuPortfolioError(f"Failed to load Futu OpenAPI SDK: {exc}") from exc
 
     return _FutuApi(
         OpenQuoteContext=OpenQuoteContext,
@@ -97,7 +97,7 @@ def _iter_rows(data: Any, operation: str) -> Iterable[Any]:
 
     iterrows = getattr(data, "iterrows", None)
     if not callable(iterrows):
-        raise FutuPortfolioError(f"{operation}返回了非表格数据")
+        raise FutuPortfolioError(f"{operation} returned non-tabular data")
     return (row for _, row in iterrows())
 
 
@@ -109,7 +109,7 @@ def _safe_close(context: Any) -> None:
     try:
         context.close()
     except Exception:  # pragma: no cover - closing is best effort
-        logger.debug("关闭 Futu OpenD 连接失败", exc_info=True)
+        logger.debug("Failed to close the Futu OpenD connection", exc_info=True)
 
 
 def _connection_settings() -> tuple[str, int]:
@@ -120,9 +120,9 @@ def _connection_settings() -> tuple[str, int]:
     try:
         port = int(raw_port)
     except ValueError as exc:
-        raise FutuPortfolioError(f"FUTU_OPEND_PORT 不是有效端口: {raw_port!r}") from exc
+        raise FutuPortfolioError(f"FUTU_OPEND_PORT is not a valid port: {raw_port!r}") from exc
     if not host or not 1 <= port <= 65535:
-        raise FutuPortfolioError(f"Futu OpenD 地址无效: {host!r}:{port}")
+        raise FutuPortfolioError(f"Invalid Futu OpenD address: {host!r}:{port}")
 
     address_text = host[1:-1] if host.startswith("[") and host.endswith("]") else host
     try:
@@ -131,8 +131,9 @@ def _connection_settings() -> tuple[str, int]:
         address = None
     if address is not None and address.version != 4:
         raise FutuPortfolioError(
-            "futu-api==10.8.6808 的网络层仅支持 IPv4；"
-            f"FUTU_OPEND_HOST 当前为 {host!r}，请改用 IPv4 地址或可解析到 IPv4 的主机名。"
+            "futu-api==10.8.6808's network layer only supports IPv4; "
+            f"FUTU_OPEND_HOST is currently {host!r}. Use an IPv4 address or a hostname "
+            "that resolves to IPv4."
         )
     return host, port
 
@@ -146,9 +147,9 @@ def _configured_account_id() -> Optional[int]:
     try:
         account_id = int(value)
     except ValueError as exc:
-        raise FutuPortfolioError("FUTU_ACC_ID 必须是正整数账户 ID") from exc
+        raise FutuPortfolioError("FUTU_ACC_ID must be a positive integer account ID") from exc
     if account_id <= 0:
-        raise FutuPortfolioError("FUTU_ACC_ID 必须是正整数账户 ID")
+        raise FutuPortfolioError("FUTU_ACC_ID must be a positive integer account ID")
     return account_id
 
 
@@ -158,7 +159,7 @@ def _configured_security_firm(api: _FutuApi) -> Any:
     name = (os.getenv("FUTU_SECURITY_FIRM") or "NONE").strip().upper()
     firm = getattr(api.SecurityFirm, name, None)
     if firm is None:
-        raise FutuPortfolioError(f"不支持的 FUTU_SECURITY_FIRM: {name}")
+        raise FutuPortfolioError(f"Unsupported FUTU_SECURITY_FIRM: {name}")
     return firm
 
 
@@ -179,8 +180,8 @@ def _discover_real_accounts(api: _FutuApi, host: str, port: int) -> List[_FutuAc
         )
         ret, data = context.get_acc_list()
         if ret != api.RET_OK:
-            raise FutuPortfolioError(f"查询 Futu 真实账户失败: {data}")
-        for row in _iter_rows(data, "Futu 账户查询"):
+            raise FutuPortfolioError(f"Failed to query the real Futu account: {data}")
+        for row in _iter_rows(data, "Futu account query"):
             if _enum_text(row.get("trd_env")) != "REAL":
                 continue
             if _enum_text(row.get("acc_status")) != "ACTIVE":
@@ -195,10 +196,10 @@ def _discover_real_accounts(api: _FutuApi, host: str, port: int) -> List[_FutuAc
                 )
             except (TypeError, ValueError, OverflowError) as exc:
                 raise FutuPortfolioError(
-                    "Futu 账户查询返回了无效账户 ID"
+                    "The Futu account query returned an invalid account ID"
                 ) from exc
             if isinstance(raw_acc_id, bool) or not exact_integer or acc_id <= 0:
-                raise FutuPortfolioError("Futu 账户查询返回了无效账户 ID")
+                raise FutuPortfolioError("The Futu account query returned an invalid account ID")
             if acc_id in seen_ids:
                 continue
             returned_firm_name = _enum_text(row.get("security_firm"))
@@ -212,7 +213,7 @@ def _discover_real_accounts(api: _FutuApi, host: str, port: int) -> List[_FutuAc
     except FutuPortfolioError:
         raise
     except Exception as exc:  # noqa: BLE001 - translate SDK/network failures
-        raise FutuPortfolioError(f"查询 Futu 真实账户失败: {exc}") from exc
+        raise FutuPortfolioError(f"Failed to query the real Futu account: {exc}") from exc
     finally:
         _safe_close(context)
 
@@ -220,12 +221,13 @@ def _discover_real_accounts(api: _FutuApi, host: str, port: int) -> List[_FutuAc
         accounts = [account for account in accounts if account.acc_id == requested_acc_id]
         if not accounts:
             raise FutuPortfolioError(
-                "FUTU_ACC_ID 未匹配到可用的真实证券账户；请检查账户 ID、券商和 OpenD 登录状态。"
+                "FUTU_ACC_ID did not match any usable real securities account; please "
+                "check the account ID, broker, and OpenD login status."
             )
 
     if not accounts:
         raise FutuPortfolioError(
-            "未找到状态为 ACTIVE 的 Futu REAL 普通或 MASTER 证券账户"
+            "No ACTIVE Futu REAL NORMAL or MASTER securities account was found"
         )
     return accounts
 
@@ -258,8 +260,8 @@ def _load_position_codes(
                 refresh_cache=True,
             )
             if ret != api.RET_OK:
-                raise FutuPortfolioError(f"查询 Futu 真实持仓失败: {data}")
-            for row in _iter_rows(data, "Futu 持仓查询"):
+                raise FutuPortfolioError(f"Failed to query real Futu positions: {data}")
+            for row in _iter_rows(data, "Futu position query"):
                 position_side = _enum_text(row.get("position_side"))
                 if position_side == "SHORT":
                     skipped_short_count += 1
@@ -280,20 +282,20 @@ def _load_position_codes(
                     quantity = float(raw_quantity)
                 except (TypeError, ValueError) as exc:
                     suffix = f": {code}" if code else ""
-                    raise FutuPortfolioError(f"Futu 持仓数量无效{suffix}") from exc
+                    raise FutuPortfolioError(f"Invalid Futu position quantity{suffix}") from exc
                 if not math.isfinite(quantity):
                     suffix = f": {code}" if code else ""
-                    raise FutuPortfolioError(f"Futu 持仓数量无效{suffix}")
+                    raise FutuPortfolioError(f"Invalid Futu position quantity{suffix}")
                 if quantity == 0:
                     continue
                 if not isinstance(raw_code, str):
-                    raise FutuPortfolioError("Futu 非零持仓返回了无效证券代码")
+                    raise FutuPortfolioError("A non-zero Futu position returned an invalid security code")
                 if not code:
-                    raise FutuPortfolioError("Futu 非零持仓返回了空证券代码")
+                    raise FutuPortfolioError("A non-zero Futu position returned an empty security code")
                 market, separator, symbol = code.partition(".")
                 if not separator or not market or not symbol:
                     raise FutuPortfolioError(
-                        f"Futu 非零持仓返回了无效证券代码: {code}"
+                        f"A non-zero Futu position returned an invalid security code: {code}"
                     )
                 if code in seen_codes:
                     continue
@@ -302,15 +304,15 @@ def _load_position_codes(
         except FutuPortfolioError:
             raise
         except Exception as exc:  # noqa: BLE001 - translate SDK/network errors for CLI callers
-            raise FutuPortfolioError(f"查询 Futu 真实持仓失败: {exc}") from exc
+            raise FutuPortfolioError(f"Failed to query real Futu positions: {exc}") from exc
         finally:
             _safe_close(context)
 
     if skipped_short_count:
-        logger.info("已跳过 %d 个 Futu SHORT 空头持仓", skipped_short_count)
+        logger.info("Skipped %d Futu SHORT positions", skipped_short_count)
     if skipped_unknown_side_count:
         logger.warning(
-            "已跳过 %d 个持仓方向不是 LONG 的 Futu 持仓",
+            "Skipped %d Futu positions whose side is not LONG",
             skipped_unknown_side_count,
         )
     return codes
@@ -377,7 +379,7 @@ def _filter_stock_codes(
 
     if not grouped:
         logger.warning(
-            "已跳过 %d 个当前分析流程不支持的 Futu 持仓: %s",
+            "Skipped %d Futu positions unsupported by the current analysis flow: %s",
             len(unsupported_codes),
             ", ".join(unsupported_codes),
         )
@@ -402,9 +404,9 @@ def _filter_stock_codes(
                 )
                 if ret != api.RET_OK:
                     raise FutuPortfolioError(
-                        f"查询 Futu 持仓证券类型失败（{prefix}）: {data}"
+                        f"Failed to query the Futu position security type ({prefix}): {data}"
                     )
-                for row in _iter_rows(data, "Futu 证券类型查询"):
+                for row in _iter_rows(data, "Futu security type query"):
                     code = str(row.get("code", "") or "").strip().upper()
                     if not code:
                         continue
@@ -417,7 +419,7 @@ def _filter_stock_codes(
     except FutuPortfolioError:
         raise
     except Exception as exc:  # noqa: BLE001 - translate SDK/network errors for CLI callers
-        raise FutuPortfolioError(f"查询 Futu 持仓证券类型失败: {exc}") from exc
+        raise FutuPortfolioError(f"Failed to query the Futu position security type: {exc}") from exc
     finally:
         _safe_close(context)
 
@@ -429,13 +431,13 @@ def _filter_stock_codes(
     ]
     if unsupported_codes:
         logger.warning(
-            "已跳过 %d 个当前分析流程不支持的 Futu 持仓: %s",
+            "Skipped %d Futu positions unsupported by the current analysis flow: %s",
             len(unsupported_codes),
             ", ".join(unsupported_codes),
         )
     if missing_codes:
         raise FutuPortfolioError(
-            "无法确认证券类型的 Futu 持仓: " + ", ".join(missing_codes)
+            "Could not confirm the security type for these Futu positions: " + ", ".join(missing_codes)
         )
 
     result: List[str] = []
@@ -451,7 +453,7 @@ def _filter_stock_codes(
             result.append(analysis_code)
     if conversion_failures:
         raise FutuPortfolioError(
-            "无法转换已确认的 Futu 正股代码到当前分析格式: "
+            "Could not convert these confirmed Futu stock codes to the current analysis format: "
             + ", ".join(conversion_failures)
         )
     return result
@@ -475,7 +477,7 @@ def load_futu_stock_codes() -> List[str]:
     position_codes = _load_position_codes(api, host, port, accounts)
     stock_codes = _filter_stock_codes(api, host, port, position_codes)
     logger.info(
-        "已从 Futu 真实账户加载 %d 只正股（账户数: %d，原始非零多头持仓数: %d）: %s",
+        "Loaded %d stocks from the real Futu account (accounts: %d, raw non-zero long positions: %d): %s",
         len(stock_codes),
         len(accounts),
         len(position_codes),

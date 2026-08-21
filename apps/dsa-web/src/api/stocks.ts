@@ -49,6 +49,6 @@ export const stocksApi = {
       const data = response.data as { codes?: string[]; items?: ExtractItem[] };
       return { codes: data.codes ?? [], items: data.items };
     }
-    throw new Error('请提供文件或粘贴文本');
+    throw new Error('Please provide a file or paste text');
   },
 };

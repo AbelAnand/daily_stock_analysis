@@ -3,6 +3,19 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { createParsedApiError, getParsedApiError, type ParsedApiError } from '../api/error';
 import { authApi } from '../api/auth';
 import { useStockPoolStore } from '../stores';
+import { useUiLanguage } from './UiLanguageContext';
+import type { UiLanguage } from '../i18n/uiText';
+
+const LOGIN_RATE_LIMIT_TEXT: Record<UiLanguage, { title: string; message: string }> = {
+  zh: {
+    title: '登录尝试过于频繁',
+    message: '尝试次数过多，请稍后再试。',
+  },
+  en: {
+    title: 'Too many login attempts',
+    message: 'Too many attempts. Please try again later.',
+  },
+};
 
 type AuthContextValue = {
   authEnabled: boolean;
@@ -24,12 +37,13 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function extractLoginError(err: unknown): ParsedApiError {
+function extractLoginError(err: unknown, language: UiLanguage): ParsedApiError {
   const parsed = getParsedApiError(err);
   if (parsed.status === 429) {
+    const text = LOGIN_RATE_LIMIT_TEXT[language];
     return createParsedApiError({
-      title: '登录尝试过于频繁',
-      message: '尝试次数过多，请稍后再试。',
+      title: text.title,
+      message: text.message,
       rawMessage: parsed.rawMessage,
       status: parsed.status,
       category: parsed.category,
@@ -39,6 +53,7 @@ function extractLoginError(err: unknown): ParsedApiError {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { language } = useUiLanguage();
   const [authEnabled, setAuthEnabled] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [passwordSet, setPasswordSet] = useState(false);
@@ -87,10 +102,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await fetchStatus();
         return { success: true };
       } catch (err: unknown) {
-        return { success: false, error: extractLoginError(err) };
+        return { success: false, error: extractLoginError(err, language) };
       }
     },
-    [fetchStatus]
+    [fetchStatus, language]
   );
 
   const changePassword = useCallback(

@@ -169,7 +169,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         runtime_module.build_market_review_runtime.assert_not_called()
         notify_notifier.send.assert_called_once()
         sent = notify_notifier.send.call_args.args[0]
-        self.assertIn("休市", sent)
+        self.assertIn("closed today", sent)
         self.assertEqual(notify_notifier.send.call_args.kwargs["route_type"], "report")
 
     def test_trading_day_check_disabled_does_not_pass_override(self) -> None:
@@ -237,7 +237,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
             response = cmd.execute(message, [])
 
         release_market_review_lock.assert_called_once_with(lock_token)
-        self.assertEqual(response.text, "❌ 错误：大盘复盘启动失败，已释放运行锁；请稍后重试")
+        self.assertEqual(response.text, "❌ Error: Failed to start market review; the run lock has been released. Please try again later.")
 
 
 

@@ -1,7 +1,25 @@
-import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
+import { render as rtlRender, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StockBarItemComponent } from '../StockBarItem';
 import type { StockBarItem } from '../../../types/analysis';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
+
+// StockBarItemComponent always renders inside UiLanguageProvider in the real app; without it,
+// useUiLanguage() falls back to the English default. Seed the stored preference as 'zh' and
+// wrap every render so these tests keep exercising the Chinese copy they assert on.
+function render(ui: ReactElement) {
+  const rendered = rtlRender(<UiLanguageProvider>{ui}</UiLanguageProvider>);
+  return {
+    ...rendered,
+    rerender: (nextUi: ReactElement) => rendered.rerender(<UiLanguageProvider>{nextUi}</UiLanguageProvider>),
+  };
+}
+
+beforeEach(() => {
+  window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+});
 
 const issue1600Item: StockBarItem = {
   id: 1,

@@ -215,7 +215,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
             timeout=SerpAPISearchProvider._ORGANIC_CONTENT_FETCH_TIMEOUT,
         )
         self.assertNotIn("True", resp.results[0].snippet)
-        self.assertIn("【网页详情】", resp.results[0].snippet)
+        self.assertIn("[Page details]", resp.results[0].snippet)
 
     def test_provider_ignores_malformed_rich_snippet_sections(self) -> None:
         provider = SerpAPISearchProvider(["dummy_key"])
@@ -341,7 +341,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
             "https://example.com/need-extra-context",
             timeout=SerpAPISearchProvider._ORGANIC_CONTENT_FETCH_TIMEOUT,
         )
-        self.assertIn("【网页详情】", resp.results[0].snippet)
+        self.assertIn("[Page details]", resp.results[0].snippet)
         self.assertEqual(resp.results[1].snippet, "也很短")
         self.assertEqual(resp.results[2].snippet, "还是很短")
 
@@ -384,7 +384,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
             timeout=SerpAPISearchProvider._ORGANIC_CONTENT_FETCH_TIMEOUT,
         )
         self.assertEqual(resp.results[0].snippet, "附件摘要很短")
-        self.assertIn("【网页详情】", resp.results[1].snippet)
+        self.assertIn("[Page details]", resp.results[1].snippet)
         self.assertEqual(resp.results[2].snippet, "还是很短")
 
     def test_provider_skips_query_encoded_attachment_and_fetches_next_result(self) -> None:
@@ -426,7 +426,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
             timeout=SerpAPISearchProvider._ORGANIC_CONTENT_FETCH_TIMEOUT,
         )
         self.assertEqual(resp.results[0].snippet, "附件摘要很短")
-        self.assertIn("【网页详情】", resp.results[1].snippet)
+        self.assertIn("[Page details]", resp.results[1].snippet)
         self.assertEqual(resp.results[2].snippet, "还是很短")
 
     def test_provider_keeps_html_fetch_for_asset_like_query_param(self) -> None:
@@ -461,7 +461,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
             "https://example.com/article?thumbnail=cover.jpg",
             timeout=SerpAPISearchProvider._ORGANIC_CONTENT_FETCH_TIMEOUT,
         )
-        self.assertIn("【网页详情】", resp.results[0].snippet)
+        self.assertIn("[Page details]", resp.results[0].snippet)
         self.assertEqual(resp.results[1].snippet, "也很短")
 
     def test_provider_skips_non_string_link_and_keeps_fetch_budget(self) -> None:
@@ -497,7 +497,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
             timeout=SerpAPISearchProvider._ORGANIC_CONTENT_FETCH_TIMEOUT,
         )
         self.assertEqual(resp.results[0].snippet, "摘要过短")
-        self.assertIn("【网页详情】", resp.results[1].snippet)
+        self.assertIn("[Page details]", resp.results[1].snippet)
 
     def test_provider_fetch_failure_stays_fail_open_and_stops_after_budget(self) -> None:
         provider = SerpAPISearchProvider(["dummy_key"])

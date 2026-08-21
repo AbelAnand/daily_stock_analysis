@@ -609,7 +609,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
         self.assertEqual(payload["hotspots"], [])
         self.assertEqual(payload["hotspot_count"], 0)
         self.assertEqual(payload["source_errors"], ["eastmoney_hotspot_unavailable"])
-        self.assertEqual(payload["message"], "热点源连接中断，暂无可用缓存。")
+        self.assertEqual(payload["message"], "Hotspot source connection lost and no cache is available.")
         self.assertNotIn("RemoteDisconnected", payload["message"])
         discover.assert_called_once()
 
@@ -647,7 +647,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
         self.assertEqual(payload["hotspots"], [])
         self.assertEqual(payload["hotspot_count"], 0)
         self.assertEqual(payload["source_errors"], ["eastmoney_hotspot_unavailable"])
-        self.assertEqual(payload["message"], "热点源连接中断，暂无可用缓存。")
+        self.assertEqual(payload["message"], "Hotspot source connection lost and no cache is available.")
         self.assertNotIn("RemoteDisconnected", payload["message"])
         discover.assert_called_once()
 
@@ -2107,7 +2107,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
             frame = provider._related_hotspot_constituents("钼")
 
         self.assertEqual(list(frame["code"]), ["001257", "300618"])
-        self.assertEqual(frame.iloc[0]["role"], "小金属活跃股")
+        self.assertEqual(frame.iloc[0]["role"], "Minor metals active stock")
 
     def test_hotspot_route_is_grouped_by_daily_markers(self) -> None:
         provider = screening_service.DsaEastMoneyHotspotProvider()
@@ -2125,7 +2125,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
         self.assertLessEqual(len(route), 2)
         self.assertEqual(route[0]["date"], datetime.now().date().isoformat())
         self.assertEqual(route[0]["published_at"], route[0]["date"])
-        self.assertIn("当日结构", route[0]["description"])
+        self.assertIn("Intraday structure", route[0]["description"])
         self.assertEqual(route[1]["date"], "2026-06-12")
 
     def test_hotspot_route_does_not_invent_metal_catalyst_hint(self) -> None:
@@ -2170,7 +2170,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
 
         self.assertEqual(payload["enabled"], True)
         self.assertEqual(payload["topic"], "MLCC")
-        self.assertEqual(payload["summary"], "MLCC 当前暂无可用的板块异动摘要。")
+        self.assertEqual(payload["summary"], "MLCC has no board-move summary available right now.")
         self.assertEqual(payload["route"][0]["source"], "ths_summary")
         self.assertEqual(payload["stocks"][0]["name"], "顺络电子")
 
@@ -2271,7 +2271,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
 
         self.assertGreaterEqual(fetch_raw.call_count, 1)
         self.assertEqual(frame.iloc[0]["name"], "AI算力")
-        self.assertEqual(frame.iloc[0]["stage"], "加速发酵")
+        self.assertEqual(frame.iloc[0]["stage"], "Accelerating")
         self.assertGreater(frame.iloc[0]["trend_score"], 0)
         self.assertGreater(frame.iloc[0]["persistence_score"], 0)
         self.assertEqual(frame.iloc[0]["sample_stock_count"], 1)
@@ -2342,7 +2342,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 424)
         self.assertEqual(caught.exception.detail["error"], "screening_unavailable")
         self.assertEqual(caught.exception.detail.get("diagnostics", {}).get("reason"), "unexpected_exception")
-        self.assertIn("选股功能初始化失败", caught.exception.detail["message"])
+        self.assertIn("Screening initialization failed", caught.exception.detail["message"])
 
     def test_start_screen_task_submits_background_work(self) -> None:
         config = self._config(enabled=True)
@@ -2387,7 +2387,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
         fake_queue.update_task_progress.assert_any_call(
             "screen-task-1",
             20,
-            "正在执行选股，外部数据源较慢时会持续后台运行",
+            "Screening in progress; it keeps running in the background if external data sources are slow",
         )
         fake_queue.update_task_progress.assert_any_call(
             "screen-task-1",
@@ -2655,7 +2655,7 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
         self.assertTrue(candidate["dsa_context"]["enriched"])
         self.assertEqual(candidate["dsa_news"][0]["title"], "贵州茅台最新公告")
         self.assertEqual(candidate["dsa_events"][0]["title"], "贵州茅台年度报告")
-        self.assertIn("DSA行情", candidate["dsa_analysis_summary"])
+        self.assertIn("DSA quote", candidate["dsa_analysis_summary"])
         self.assertEqual(payload["dsa_enrichment"]["enriched_count"], 1)
 
     def test_screen_reuses_screening_dsa_context_without_refetch(self) -> None:

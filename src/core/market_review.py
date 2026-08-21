@@ -42,11 +42,11 @@ logger = logging.getLogger(__name__)
 MARKET_REVIEW_HISTORY_CODE = "MARKET"
 MARKET_REVIEW_REPORT_TYPE = "market_review"
 _MARKET_REVIEW_MARKETS = (
-    ('cn', 'cn_title', 'A 股'),
-    ('hk', 'hk_title', '港股'),
-    ('us', 'us_title', '美股'),
-    ('jp', 'jp_title', '日股'),
-    ('kr', 'kr_title', '韩股'),
+    ('cn', 'cn_title', 'A-share'),
+    ('hk', 'hk_title', 'HK'),
+    ('us', 'us_title', 'US'),
+    ('jp', 'jp_title', 'Japan'),
+    ('kr', 'kr_title', 'Korea'),
 )
 _MARKET_REVIEW_REGION_ORDER = MARKET_REVIEW_REGION_ORDER
 
@@ -77,7 +77,7 @@ def _refresh_market_review_history_diagnostics(*, query_id: str) -> None:
                 diagnostics=diagnostic_snapshot,
             )
     except Exception as exc:
-        logger.warning("回写大盘复盘运行诊断失败（fail-open）: %s", exc)
+        logger.warning("Failed to write back market review run diagnostics (fail-open): %s", exc)
 
 
 def _record_market_review_notification_run(
@@ -114,16 +114,16 @@ def _collect_market_light_snapshot(
 
 def _get_market_review_text(language: str) -> dict[str, str]:
     normalized = normalize_report_language(language)
-    if normalized == "en":
+    if normalized == "zh":
         return {
-            "root_title": "# 🎯 Market Review",
-            "push_title": "🎯 Market Review",
-            "cn_title": "# A-share Market Recap",
-            "us_title": "# US Market Recap",
-            "hk_title": "# HK Market Recap",
-            "jp_title": "# Japan Market Recap",
-            "kr_title": "# Korea Market Recap",
-            "separator": "> Next market recap follows",
+            "root_title": "# 🎯 大盘复盘",
+            "push_title": "🎯 大盘复盘",
+            "cn_title": "# A股大盘复盘",
+            "us_title": "# 美股大盘复盘",
+            "hk_title": "# 港股大盘复盘",
+            "jp_title": "# 日股大盘复盘",
+            "kr_title": "# 韩股大盘复盘",
+            "separator": "> 以下为下一市场大盘复盘",
         }
     if normalized == "ko":
         return {
@@ -137,14 +137,14 @@ def _get_market_review_text(language: str) -> dict[str, str]:
             "separator": "> 다음 시장 시황 리뷰",
         }
     return {
-        "root_title": "# 🎯 大盘复盘",
-        "push_title": "🎯 大盘复盘",
-        "cn_title": "# A股大盘复盘",
-        "us_title": "# 美股大盘复盘",
-        "hk_title": "# 港股大盘复盘",
-        "jp_title": "# 日股大盘复盘",
-        "kr_title": "# 韩股大盘复盘",
-        "separator": "> 以下为下一市场大盘复盘",
+        "root_title": "# 🎯 Market Review",
+        "push_title": "🎯 Market Review",
+        "cn_title": "# A-share Market Recap",
+        "us_title": "# US Market Recap",
+        "hk_title": "# HK Market Recap",
+        "jp_title": "# Japan Market Recap",
+        "kr_title": "# Korea Market Recap",
+        "separator": "> Next market recap follows",
     }
 
 
@@ -663,7 +663,7 @@ def _render_sector_payload_markdown_block(
     if not sector_block:
         return ""
     language = normalize_report_language(payload.get("language"))
-    title = "Sector Highlights" if language == "en" else "板块主线"
+    title = "板块主线" if language == "zh" else "Sector Highlights"
     heading = f"{title_prefix} / {title}" if title_prefix else title
     return f"### {heading}\n\n{sector_block}".strip()
 
@@ -739,10 +739,10 @@ def _render_sector_payload_block(payload: Dict[str, Any]) -> str:
     language = normalize_report_language(payload.get("language"))
     lines = []
     if top:
-        if language == "en":
-            lines.extend(["#### Leading Sectors", "| Rank | Sector | Change |", "|------|--------|--------|"])
-        else:
+        if language == "zh":
             lines.extend(["#### 领涨板块 Top 5", "| 排名 | 板块 | 涨跌幅 |", "|------|------|--------|"])
+        else:
+            lines.extend(["#### Leading Sectors", "| Rank | Sector | Change |", "|------|--------|--------|"])
         for rank, sector in enumerate(top[:5], 1):
             if not isinstance(sector, dict):
                 continue
@@ -751,10 +751,10 @@ def _render_sector_payload_block(payload: Dict[str, Any]) -> str:
     if bottom:
         if lines:
             lines.append("")
-        if language == "en":
-            lines.extend(["#### Lagging Sectors", "| Rank | Sector | Change |", "|------|--------|--------|"])
-        else:
+        if language == "zh":
             lines.extend(["#### 领跌板块 Top 5", "| 排名 | 板块 | 涨跌幅 |", "|------|------|--------|"])
+        else:
+            lines.extend(["#### Lagging Sectors", "| Rank | Sector | Change |", "|------|--------|--------|"])
         for rank, sector in enumerate(bottom[:5], 1):
             if not isinstance(sector, dict):
                 continue
@@ -794,18 +794,18 @@ def _persist_market_review_history(
 
         report_language = normalize_report_language(getattr(config, "report_language", "zh"))
         summary = _summarize_market_review(review_report, report_language)
-        if report_language == "en":
-            stock_name = "Market Review"
-            operation_advice = "View review"
-            trend_prediction = "Market review"
+        if report_language == "zh":
+            stock_name = "大盘复盘"
+            operation_advice = "查看复盘"
+            trend_prediction = "大盘复盘"
         elif report_language == "ko":
             stock_name = "시황 리뷰"
             operation_advice = "리뷰 보기"
             trend_prediction = "시황 리뷰"
         else:
-            stock_name = "大盘复盘"
-            operation_advice = "查看复盘"
-            trend_prediction = "大盘复盘"
+            stock_name = "Market Review"
+            operation_advice = "View review"
+            trend_prediction = "Market review"
 
         result = AnalysisResult(
             code=MARKET_REVIEW_HISTORY_CODE,
@@ -864,9 +864,9 @@ def _persist_market_review_history(
         )
         _refresh_market_review_history_diagnostics(query_id=history_query_id)
         if saved_history_id:
-            logger.info("大盘复盘历史记录已保存: query_id=%s", history_query_id)
+            logger.info("Market review history saved: query_id=%s", history_query_id)
         else:
-            logger.warning("大盘复盘历史记录保存失败: query_id=%s", history_query_id)
+            logger.warning("Failed to save market review history: query_id=%s", history_query_id)
         return saved_history_id
     except Exception as exc:
         record_history_run(
@@ -874,7 +874,7 @@ def _persist_market_review_history(
             metadata_saved=False,
             error_message=exc,
         )
-        logger.warning("大盘复盘历史记录保存异常，报告文件与推送流程继续: %s", exc, exc_info=True)
+        logger.warning("Error saving market review history; report file and notification flow continue: %s", exc, exc_info=True)
         return 0
 
 
@@ -906,9 +906,9 @@ def _build_market_review_context_overview(
         metadata["scope"] = diagnostic_snapshot.get("scope") or metadata["scope"]
 
     label = (
-        "Market review" if report_language == "en"
+        "大盘复盘" if report_language == "zh"
         else "시황 리뷰" if report_language == "ko"
-        else "大盘复盘"
+        else "Market review"
     )
     return {
         "pack_version": "market_review/1.0",
@@ -946,8 +946,8 @@ def _summarize_market_review(review_report: str, report_language: str) -> str:
         text = line.strip().lstrip("#").strip()
         if text and not text.startswith("---") and not text.startswith(">"):
             return text[:200]
-    if report_language == "en":
-        return "Market review report generated."
+    if report_language == "zh":
+        return "大盘复盘报告已生成。"
     if report_language == "ko":
         return "시황 리뷰 리포트가 생성되었습니다."
-    return "大盘复盘报告已生成。"
+    return "Market review report generated."

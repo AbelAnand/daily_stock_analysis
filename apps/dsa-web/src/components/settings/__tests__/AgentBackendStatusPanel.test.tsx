@@ -1,8 +1,19 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentBackendStatusResponse } from '../../../types/systemConfig';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import { AgentBackendStatusPanel } from '../AgentBackendStatusPanel';
+
+function withLanguage(ui: ReactElement): ReactElement {
+  return <UiLanguageProvider>{ui}</UiLanguageProvider>;
+}
+
+function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(withLanguage(ui), options);
+}
 
 const { getStatus, previewStatus } = vi.hoisted(() => ({
   getStatus: vi.fn(),
@@ -57,6 +68,7 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof AgentBackend
 
 describe('AgentBackendStatusPanel', () => {
   beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
     getStatus.mockReset().mockResolvedValue(litellmStatus);
     previewStatus.mockReset().mockResolvedValue(codexStatus);
   });
@@ -99,11 +111,13 @@ describe('AgentBackendStatusPanel', () => {
     await waitFor(() => expect(previewStatus).toHaveBeenCalledTimes(1));
 
     rerender(
-      <AgentBackendStatusPanel
-        {...props}
-        items={[{ key: 'AGENT_BACKEND', value: 'litellm' }]}
-        selectedBackend="litellm"
-      />,
+      withLanguage(
+        <AgentBackendStatusPanel
+          {...props}
+          items={[{ key: 'AGENT_BACKEND', value: 'litellm' }]}
+          selectedBackend="litellm"
+        />,
+      ),
     );
     await waitFor(() => expect(previewStatus).toHaveBeenCalledTimes(2));
     await act(async () => {

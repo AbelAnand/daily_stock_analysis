@@ -136,7 +136,7 @@ search_stock_news_tool = ToolDefinition(
         ToolParameter(
             name="stock_name",
             type="string",
-            description="Stock name in Chinese, e.g., '贵州茅台'",
+            description="Stock name (native-language name works best for A-shares), e.g., 'Kweichow Moutai'",
         ),
     ],
     handler=_handle_search_stock_news,
@@ -211,7 +211,7 @@ search_comprehensive_intel_tool = ToolDefinition(
         ToolParameter(
             name="stock_name",
             type="string",
-            description="Stock name in Chinese, e.g., '贵州茅台'",
+            description="Stock name (native-language name works best for A-shares), e.g., 'Kweichow Moutai'",
         ),
     ],
     handler=_handle_search_comprehensive_intel,

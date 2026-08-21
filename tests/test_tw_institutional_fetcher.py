@@ -109,7 +109,7 @@ class TestT86Parsing(unittest.TestCase):
             rec = _fetcher().get_institutional_net("2330.TW", "20260626")
         self.assertIsNotNone(rec)
         self.assertEqual(rec["stock_code"], "2330")
-        self.assertEqual(rec["market"], "上市")
+        self.assertEqual(rec["market"], "TWSE")
         self.assertEqual(rec["source"], "TWSE-T86")
         self.assertEqual(rec["unit"], "shares")
         self.assertEqual(rec["date"], "20260626")
@@ -143,7 +143,7 @@ class TestTpexParsing(unittest.TestCase):
             rec = _fetcher().get_institutional_net("3105.TWO")
         self.assertIsNotNone(rec)
         self.assertEqual(rec["stock_code"], "3105")
-        self.assertEqual(rec["market"], "上櫃")
+        self.assertEqual(rec["market"], "TPEx")
         self.assertEqual(rec["source"], "TPEx-OpenAPI")
         self.assertEqual(rec["date"], "20260626")        # 民國 1150626 -> 西元
         self.assertEqual(rec["foreign_net"], -982953)

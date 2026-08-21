@@ -293,7 +293,7 @@ class TestHistoryCommandCompatibility(unittest.TestCase):
         with patch("src.storage.get_db", return_value=db):
             response = command.execute(message, ["clear"])
 
-        self.assertIn("1 条消息", response.text)
+        self.assertIn("1 messages", response.text)
         db.delete_conversation_session.assert_called_once_with("feishu_u1:group-1:chat")
 
 

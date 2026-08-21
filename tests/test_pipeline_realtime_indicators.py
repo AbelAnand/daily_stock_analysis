@@ -163,15 +163,15 @@ class TestComputeMaStatus(unittest.TestCase):
 
     def test_bullish_alignment(self) -> None:
         status = StockAnalysisPipeline._compute_ma_status(11, 10, 9.5, 9)
-        self.assertIn("多头", status)
+        self.assertIn("Bullish", status)
 
     def test_bearish_alignment(self) -> None:
         status = StockAnalysisPipeline._compute_ma_status(8, 9, 9.5, 10)
-        self.assertIn("空头", status)
+        self.assertIn("Bearish", status)
 
     def test_consolidation(self) -> None:
         status = StockAnalysisPipeline._compute_ma_status(10, 10, 10, 10)
-        self.assertIn("震荡", status)
+        self.assertIn("Consolidating", status)
 
 
 class TestEnhanceContextRealtimeOverride(unittest.TestCase):
@@ -220,7 +220,7 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
         self.assertEqual(enhanced["today"]["ma5"], 15.5)
         self.assertEqual(enhanced["today"]["ma10"], 15.2)
         self.assertEqual(enhanced["today"]["ma20"], 14.9)
-        self.assertIn("多头", enhanced["ma_status"])
+        self.assertIn("Bullish", enhanced["ma_status"])
         self.assertEqual(enhanced["date"], today.isoformat())
         self.assertEqual(enhanced["today"]["date"], today.isoformat())
         self.assertEqual(enhanced["today"]["data_source"], "realtime:tencent")

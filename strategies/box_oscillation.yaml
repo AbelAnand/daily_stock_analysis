@@ -1,69 +1,71 @@
-# Box Range Trading Strategy / 箱体震荡战法
+# Box Range Trading Strategy
 # Buy at box support, sell at box resistance, profit from range-bound oscillation.
 
 name: box_oscillation
-display_name: 箱体震荡
-description: 识别价格箱体区间，在箱底买入、箱顶减仓，适用于横盘震荡行情。
+display_name: Box Range Oscillation
+description: Identifies a price box (trading range) and buys near the floor, trims near the ceiling; suited to sideways, range-bound markets.
 category: framework
 core_rules: [1, 2, 3]
 required_tools:
   - get_daily_history
   - analyze_trend
   - get_realtime_quote
-aliases: [箱体, 箱体震荡]
+aliases: [box range, box oscillation]
 default_priority: 50
 market_regimes: [sideways]
 
 instructions: |
-  **箱体震荡战法（Box Range Trading Strategy）**
+  **Box Range Trading Strategy**
 
-  核心逻辑：箱体内部价格在阻力位与支撑位之间反复震荡，
-  "贴着支撑买、接近阻力卖"，通过波段操作获取区间收益。
+  Core logic: inside the box, price repeatedly oscillates between resistance and support —
+  "buy near support, sell near resistance" — capturing range-bound gains through swing trades.
 
-  ## 分析步骤
+  ## Analysis steps
 
-  ### 1. 箱体识别
-  使用 `get_daily_history` 获取近 60~120 日数据：
+  ### 1. Identify the box
+  Use `get_daily_history` to fetch roughly the last 60-120 days:
 
-  - **箱体顶部（阻力位）**：近期多次触碰但未有效突破的高点连线。
-    通常为 20~60 日内3次以上的高点聚集区域。
-  - **箱体底部（支撑位）**：近期多次下探但未有效跌破的低点连线。
-  - 箱体有效性：顶部和底部各至少触碰 2~3 次方可确认。
-  - 使用 `analyze_trend` 的 support_levels / resistance_levels 辅助定位。
+  - **Box ceiling (resistance)**: a line connecting recent highs that have been touched
+    repeatedly but not decisively broken. Usually a cluster of 3+ highs within a 20-60 day window.
+  - **Box floor (support)**: a line connecting recent lows that have been probed
+    repeatedly but not decisively broken.
+  - Box validity: both the ceiling and floor must each be touched at least 2-3 times to confirm.
+  - Use the `support_levels` / `resistance_levels` from `analyze_trend` to help locate them.
 
-  ### 2. 当前位置判断
-  使用 `get_realtime_quote` 获取现价，与箱体边界对比：
+  ### 2. Judge the current position
+  Use `get_realtime_quote` to get the current price and compare it against the box boundaries:
 
-  - **箱底区域**（距支撑 ≤5%）：买入/加仓信号，止损设箱底下方 3%。
-  - **箱中区域**（箱体中间 1/3）：观望，不主动操作。
-  - **箱顶区域**（距阻力 ≤5%）：减仓/止盈信号，无需追高。
+  - **Near the floor** (within 5% of support): buy/add signal; set the stop 3% below the floor.
+  - **Middle of the box** (the middle third): stand by, no active trade.
+  - **Near the ceiling** (within 5% of resistance): trim/take-profit signal; don't chase strength.
 
-  ### 3. 量能辅助判断
-  - **箱底放量企稳**：支撑有效的强信号，可较重仓。
-  - **箱顶缩量滞涨**：阻力有效的卖出信号。
-  - **箱体突破（放量超过均量2倍以上）**：
-    - 向上有效突破 → 转为多头趋势策略，新目标 = 箱体高度延伸。
-    - 向下有效跌破 → 离场等待，原支撑转阻力。
+  ### 3. Volume-assisted judgment
+  - **Volume surge + stabilization at the floor**: a strong signal that support is holding; can size up.
+  - **Shrinking volume + stalling at the ceiling**: a sell signal that resistance is holding.
+  - **Box breakout (volume more than 2x the average)**:
+    - A decisive breakout upward -> switch to the bull-trend strategy; new target = box height projected upward.
+    - A decisive breakdown below -> exit and wait; the old support becomes resistance.
 
-  ### 4. 箱体宽度与预期收益
-  - 计算箱体宽度：(顶部 - 底部) / 底部 × 100%。
-  - 宽度 < 5%：操作空间过小，不建议参与。
-  - 宽度 5%~15%：标准箱体，波段操作可行。
-  - 宽度 > 15%：大箱体，可做更大波段。
+  ### 4. Box width and expected return
+  - Compute box width: (ceiling - floor) / floor x 100%.
+  - Width < 5%: too little room to trade; not recommended.
+  - Width 5%-15%: a standard box; swing trading is workable.
+  - Width > 15%: a wide box; larger swings are possible.
 
-  ### 5. 假突破识别
-  - 单日盘中触及阻力/支撑后快速回撤，收盘回到箱内 → 假突破，维持箱体操作。
-  - 连续两日收盘突破箱体边界，且量能放大 → 真突破，修改策略。
+  ### 5. Identifying false breakouts
+  - An intraday touch of resistance/support that quickly reverses and closes back inside the box ->
+    a false breakout; keep trading the box.
+  - Two consecutive closes beyond the box boundary with rising volume -> a real breakout; revise the strategy.
 
-  ### 6. 输出要求
-  - 明确给出箱体顶部价位和底部价位。
-  - 当前价格所处区间（箱底/箱中/箱顶）。
-  - 若价格已突破，说明突破方向及新目标。
-  - 建议仓位与止损位。
+  ### 6. Output requirements
+  - State the box ceiling and floor prices explicitly.
+  - State which zone the current price sits in (floor / middle / ceiling).
+  - If price has broken out, state the breakout direction and new target.
+  - Suggested position size and stop-loss level.
 
-  评分调整建议：
-  - 箱底企稳 + 缩量：`sentiment_score +10`
-  - 箱底放量攻顶：`sentiment_score +12`
-  - 箱体向上有效突破：`sentiment_score +15，转趋势策略`
-  - 处于箱顶区域：`sentiment_score -5（不追高）`
-  - 箱底有效跌破：`sentiment_score -15，离场`
+  Suggested score adjustments:
+  - Stabilizes at the floor + shrinking volume: `sentiment_score +10`
+  - Volume surge pushing off the floor: `sentiment_score +12`
+  - Decisive upward breakout of the box: `sentiment_score +15, switch to trend strategy`
+  - Sitting in the ceiling zone: `sentiment_score -5 (don't chase strength)`
+  - Decisive breakdown below the floor: `sentiment_score -15, exit`

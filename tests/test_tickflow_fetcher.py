@@ -352,7 +352,7 @@ class TestTickFlowFetcher(unittest.TestCase):
         data = fetcher.get_main_indices(region="cn")
 
         self.assertEqual(data[0]["code"], "000001")
-        self.assertEqual(data[0]["name"], "\u4e0a\u8bc1\u6307\u6570")
+        self.assertEqual(data[0]["name"], "SSE Composite")
         self.assertAlmostEqual(data[0]["change_pct"], 10.0)
 
     def test_get_market_stats_permission_failure_is_negative_cached(self):

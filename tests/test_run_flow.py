@@ -546,7 +546,7 @@ class RunFlowTestCase(unittest.TestCase):
         self.assertEqual(len(chip_nodes), 1)
         self.assertEqual(chip_nodes[0].status, "success")
         self.assertEqual(chip_nodes[0].record_count, 1)
-        self.assertEqual(chip_nodes[0].label, "筹码结构 · ChipFetcher")
+        self.assertEqual(chip_nodes[0].label, "Chip distribution · ChipFetcher")
         self.assertIn("provider_run_started", {event.type for event in snapshot.events})
 
     def test_llm_started_and_result_match_by_call_type_when_model_alias_differs(self) -> None:
@@ -873,8 +873,8 @@ class RunFlowTestCase(unittest.TestCase):
         node_labels = {node.label for node in snapshot.nodes}
         edge_payload = [edge.model_dump(by_alias=True) for edge in snapshot.edges]
 
-        self.assertIn("新闻舆情 · Tavily", node_labels)
-        self.assertIn("新闻舆情 · SearXNG", node_labels)
+        self.assertIn("News · Tavily", node_labels)
+        self.assertIn("News · SearXNG", node_labels)
         self.assertTrue(any(edge["kind"] == "fallback" for edge in edge_payload))
         self.assertTrue(any(event.type == "provider_run" and event.node_id.endswith("searxng_2") for event in snapshot.events))
 
@@ -1077,7 +1077,7 @@ class RunFlowTestCase(unittest.TestCase):
         provider_labels = {node.label for node in snapshot.nodes if node.kind == "data_source"}
         self.assertEqual(snapshot.stock_code, "MARKET")
         self.assertNotIn("日线K线 · StockFetcher", provider_labels)
-        self.assertIn("新闻舆情 · Tavily", provider_labels)
+        self.assertIn("News · Tavily", provider_labels)
 
     def test_stock_run_flow_filters_nested_market_context_artifacts(self) -> None:
         context_snapshot = {
@@ -1158,16 +1158,16 @@ class RunFlowTestCase(unittest.TestCase):
         snapshot = build_history_run_flow_snapshot(_history_record(context_snapshot=context_snapshot))
 
         self.assertEqual(
-            [node.label for node in snapshot.nodes if node.label == "保存报告"],
-            ["保存报告"],
+            [node.label for node in snapshot.nodes if node.label == "Save report"],
+            ["Save report"],
         )
         self.assertEqual(
-            [node.label for node in snapshot.nodes if node.label.startswith("推送通知")],
-            ["推送通知 · report"],
+            [node.label for node in snapshot.nodes if node.label.startswith("Push notification")],
+            ["Push notification · report"],
         )
         provider_labels = {node.label for node in snapshot.nodes if node.kind == "data_source"}
-        self.assertNotIn("新闻舆情 · MarketNews", provider_labels)
-        self.assertIn("新闻舆情 · StockNews", provider_labels)
+        self.assertNotIn("News · MarketNews", provider_labels)
+        self.assertIn("News · StockNews", provider_labels)
         notification = next(node for node in snapshot.nodes if node.id.startswith("notification_report"))
         self.assertEqual(notification.attempts, 0)
 

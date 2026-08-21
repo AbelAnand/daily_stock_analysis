@@ -2,8 +2,8 @@
 # Licensed under Apache-2.0 and modified for daily_stock_analysis.
 # 缩量回踩选股策略
 name: shrink_pullback
-display_name: 缩量回踩
-description: 上升趋势中缩量回踩均线支撑，趋势延续的入场机会
+display_name: Low-volume Pullback
+description: Low-volume pullback to moving-average support within an uptrend, an entry opportunity for trend continuation
 version: "1.1"
 category: trend
 tags: [trend, pullback, daily_k]
@@ -14,7 +14,7 @@ style:
   execution_style: pullback_continuation
   market_regime: [risk_on, trend]
   capital_profile: medium_liquidity
-  ui_badge: 回踩
+  ui_badge: Pullback
 
 screening:
   enabled: true
@@ -68,8 +68,8 @@ screening:
     capital_confirmed_bonus: 1.4
     volume_spike_ratio: 4.5
   ranking_hints: |
-    在满足缩量回踩特征的候选中，优先关注：
-    1. 回调幅度适中、趋势结构未破坏
-    2. 缩量明显，洗盘而非出货
-    3. 近期无重大利空
+    Among candidates showing a low-volume pullback, prioritise:
+    1. Moderate pullback depth with the trend structure intact
+    2. Clearly shrinking volume, indicating a shakeout rather than distribution
+    3. No major negative news recently
   max_output: 5

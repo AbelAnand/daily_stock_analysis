@@ -140,10 +140,10 @@ def expand_symbol_targets(
 
     if target_scope == "watchlist":
         symbols = _watchlist_symbols(config)
-        display_prefix = "自选股"
+        display_prefix = "Watchlist"
     elif target_scope == "portfolio_holdings":
         symbols = _portfolio_holding_symbols(target=target, portfolio_service=portfolio_service)
-        display_prefix = "持仓"
+        display_prefix = "Holdings"
     else:
         return [], 0
 
@@ -192,7 +192,7 @@ def make_portfolio_risk_payload(
     data: Dict[str, Any],
 ) -> RuntimeAlertPayload:
     effective_target = portfolio_effective_target(data["target"])
-    display_target = "全部账户" if data["target"] == "all" else f"账户 {data['target']}"
+    display_target = "All accounts" if data["target"] == "all" else f"Account {data['target']}"
     rule = PortfolioRiskAlert(
         target_scope=data["target_scope"],
         target=data["target"],

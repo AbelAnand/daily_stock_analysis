@@ -120,12 +120,12 @@ class TestAskCommandMultiStock(unittest.TestCase):
                 )
 
         with patch("src.agent.factory.build_agent_executor", return_value=FakeExecutor()):
-            with patch.object(command, "_build_portfolio_section", return_value="## 组合视角\n组合摘要"):
+            with patch.object(command, "_build_portfolio_section", return_value="## Portfolio View\n组合摘要"):
                 with patch("src.agent.conversation.conversation_manager"):
                     response = command._analyze_multi(config, message, ["600519", "000858"], None, "")
 
         self.assertTrue(response.markdown)
-        self.assertIn("## 组合视角", response.text)
+        self.assertIn("## Portfolio View", response.text)
         self.assertIn("| 600519 | buy | 72% |", response.text)
         self.assertIn("### 000858", response.text)
 
@@ -184,9 +184,9 @@ class TestAskCommandMultiStock(unittest.TestCase):
                 with patch("src.agent.agents.portfolio_agent.PortfolioAgent.run", new=fake_run):
                     text = command._build_portfolio_section(SimpleNamespace(), ["600519", "000858"], results)
 
-        self.assertIn("## 组合视角", text)
+        self.assertIn("## Portfolio View", text)
         self.assertIn("组合偏消费集中", text)
-        self.assertIn("建议仓位", text)
+        self.assertIn("Suggested positions", text)
 
     def test_build_portfolio_section_returns_quickly_on_timeout(self):
         command = AskCommand()
@@ -248,7 +248,7 @@ class TestAskCommandMultiStock(unittest.TestCase):
                     response = command._analyze_multi(config, message, ["600519", "000858"], None, "")
 
         self.assertIn("600519 自由文本分析", response.text)
-        self.assertNotIn("⚠️ 分析失败: Failed to parse dashboard JSON", response.text)
+        self.assertNotIn("⚠️ Analysis failed: Failed to parse dashboard JSON", response.text)
 
     def test_analyze_multi_persists_formatted_history_instead_of_raw_json(self):
         command = AskCommand()
@@ -275,7 +275,7 @@ class TestAskCommandMultiStock(unittest.TestCase):
             if len(call.args) >= 3 and call.args[1] == "assistant"
         ]
         self.assertEqual(len(assistant_messages), 2)
-        self.assertTrue(all("**结论**: buy" in text for text in assistant_messages))
+        self.assertTrue(all("**Verdict**: buy" in text for text in assistant_messages))
         self.assertTrue(all('{"raw":"json"}' not in text for text in assistant_messages))
 
     def test_analyze_multi_prewarms_db_before_parallel_history_writes(self):
@@ -315,7 +315,7 @@ class TestAskCommandMultiStock(unittest.TestCase):
 
         text = AskCommand._format_stock_result("600519", dashboard, "raw content")
 
-        self.assertIn("**关键点位**", text)
+        self.assertIn("**Key levels**", text)
         self.assertIn("ideal_buy=10.0", text)
         self.assertIn("secondary_buy=9.8", text)
         self.assertIn("stop_loss=9.5", text)

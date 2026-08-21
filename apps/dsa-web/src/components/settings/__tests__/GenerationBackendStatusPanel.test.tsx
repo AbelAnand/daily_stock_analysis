@@ -1,9 +1,18 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GenerationBackendStatusPanel } from '../GenerationBackendStatusPanel';
 import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
 import type { GenerationBackendStatusResponse, TestGenerationBackendResponse } from '../../../types/systemConfig';
 import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
+
+function withLanguage(ui: ReactElement): ReactElement {
+  return <UiLanguageProvider>{ui}</UiLanguageProvider>;
+}
+
+function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(withLanguage(ui), options);
+}
 
 const {
   getGenerationBackendStatus,
@@ -82,6 +91,7 @@ function deferred<T>() {
 describe('GenerationBackendStatusPanel', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
     getGenerationBackendStatus.mockReset();
     previewGenerationBackendStatus.mockReset();
     testGenerationBackend.mockReset();
@@ -151,10 +161,12 @@ describe('GenerationBackendStatusPanel', () => {
     expect(await screen.findByText('冒烟测试通过')).toBeInTheDocument();
 
     rerender(
-      <GenerationBackendStatusPanel
-        items={[{ key: 'GENERATION_BACKEND', value: 'opencode_cli' }]}
-        maskToken="******"
-      />,
+      withLanguage(
+        <GenerationBackendStatusPanel
+          items={[{ key: 'GENERATION_BACKEND', value: 'opencode_cli' }]}
+          maskToken="******"
+        />,
+      ),
     );
 
     await waitFor(() => {
@@ -178,10 +190,12 @@ describe('GenerationBackendStatusPanel', () => {
     await waitFor(() => expect(previewGenerationBackendStatus).toHaveBeenCalledTimes(1));
 
     rerender(
-      <GenerationBackendStatusPanel
-        items={[{ key: 'GENERATION_BACKEND', value: 'litellm' }]}
-        maskToken="******"
-      />,
+      withLanguage(
+        <GenerationBackendStatusPanel
+          items={[{ key: 'GENERATION_BACKEND', value: 'litellm' }]}
+          maskToken="******"
+        />,
+      ),
     );
     await waitFor(() => expect(previewGenerationBackendStatus).toHaveBeenCalledTimes(2));
 
@@ -206,10 +220,12 @@ describe('GenerationBackendStatusPanel', () => {
 
     previewGenerationBackendStatus.mockRejectedValueOnce(new Error('validation failed'));
     rerender(
-      <GenerationBackendStatusPanel
-        items={[{ key: 'GENERATION_BACKEND_TIMEOUT_SECONDS', value: 'bad' }]}
-        maskToken="******"
-      />,
+      withLanguage(
+        <GenerationBackendStatusPanel
+          items={[{ key: 'GENERATION_BACKEND_TIMEOUT_SECONDS', value: 'bad' }]}
+          maskToken="******"
+        />,
+      ),
     );
 
     await waitFor(() => {
@@ -231,7 +247,7 @@ describe('GenerationBackendStatusPanel', () => {
   it('renders generation backend status labels in English when UI language is English', async () => {
     window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'en');
 
-    render(
+    rtlRender(
       <UiLanguageProvider>
         <GenerationBackendStatusPanel items={[]} maskToken="******" />
       </UiLanguageProvider>,

@@ -36,7 +36,7 @@ class StatusCommand(BotCommand):
     
     @property
     def description(self) -> str:
-        return "显示系统状态"
+        return "Show system status"
     
     @property
     def usage(self) -> str:
@@ -74,7 +74,7 @@ class StatusCommand(BotCommand):
         llm_model = (getattr(config, "litellm_model", "") or "").strip()
         agent_model = (getattr(config, "agent_litellm_model", "") or "").strip()
         status["ai_primary_model"] = llm_model
-        status["ai_agent_model"] = agent_model or ("继承主模型" if llm_model else "")
+        status["ai_agent_model"] = agent_model or ("inherits primary model" if llm_model else "")
         status["ai_channels"] = [
             str(channel.get("name") or "").strip()
             for channel in llm_channels
@@ -149,30 +149,30 @@ class StatusCommand(BotCommand):
             return "✅" if enabled else "❌"
         
         lines = [
-            "📊 **股票分析助手 - 系统状态**",
+            "📊 **Stock Analysis Assistant - System Status**",
             "",
-            f"🕐 时间: {status['timestamp']}",
+            f"🕐 Time: {status['timestamp']}",
             f"🐍 Python: {status['python_version']}",
-            f"💻 平台: {status['platform']}",
+            f"💻 Platform: {status['platform']}",
             "",
             "---",
             "",
-            "**📈 自选股配置**",
-            f"• 股票数量: {status['stock_count']} 只",
+            "**📈 Watchlist**",
+            f"• Stock count: {status['stock_count']}",
         ]
         
         if status['stock_list']:
             stocks_preview = ", ".join(status['stock_list'])
             if status['stock_count'] > 5:
-                stocks_preview += f" ... 等 {status['stock_count']} 只"
-            lines.append(f"• 股票列表: {stocks_preview}")
+                stocks_preview += f" ... ({status['stock_count']} total)"
+            lines.append(f"• Stock list: {stocks_preview}")
         
         lines.extend([
             "",
-            "**🤖 AI 分析服务**",
-            f"• 主模型: {status['ai_primary_model'] or '未配置'}",
-            f"• Agent 模型: {status['ai_agent_model'] or '未配置'}",
-            f"• LLM 渠道: {', '.join(status['ai_channels']) if status['ai_channels'] else '未配置'}",
+            "**🤖 AI Analysis Service**",
+            f"• Primary model: {status['ai_primary_model'] or 'not configured'}",
+            f"• Agent model: {status['ai_agent_model'] or 'not configured'}",
+            f"• LLM channels: {', '.join(status['ai_channels']) if status['ai_channels'] else 'not configured'}",
             f"• LiteLLM YAML: {icon(status['ai_yaml'])}",
             "• Legacy Key: "
             + ", ".join(
@@ -180,7 +180,7 @@ class StatusCommand(BotCommand):
                 for name, enabled in status["ai_legacy_keys"].items()
             ),
             "",
-            "**🔍 搜索服务**",
+            "**🔍 Search Services**",
             f"• Bocha: {icon(status['search_bocha'])}",
             f"• Tavily: {icon(status['search_tavily'])}",
             f"• Brave: {icon(status['search_brave'])}",
@@ -188,15 +188,15 @@ class StatusCommand(BotCommand):
             f"• MiniMax: {icon(status['search_minimax'])}",
             f"• SearXNG: {icon(status['search_searxng'])}",
             "",
-            "**📢 通知渠道**",
-            f"• 企业微信: {icon(status['notify_wechat'])}",
-            f"• 飞书: {icon(status['notify_feishu'])}",
+            "**📢 Notification Channels**",
+            f"• WeCom: {icon(status['notify_wechat'])}",
+            f"• Feishu: {icon(status['notify_feishu'])}",
             f"• Telegram: {icon(status['notify_telegram'])}",
-            f"• 邮件: {icon(status['notify_email'])}",
-            f"• 自定义 Webhook: {icon(status['notify_custom'])}",
+            f"• Email: {icon(status['notify_email'])}",
+            f"• Custom Webhook: {icon(status['notify_custom'])}",
             f"• Discord: {icon(status['notify_discord'])}",
             f"• Slack: {icon(status['notify_slack'])}",
-            f"• PushPlus/Pushover/Server酱3: {icon(status['notify_push'])}",
+            f"• PushPlus/Pushover/ServerChan3: {icon(status['notify_push'])}",
         ])
         
         # AI 服务总体状态
@@ -204,14 +204,14 @@ class StatusCommand(BotCommand):
             lines.extend([
                 "",
                 "---",
-                "✅ **系统就绪，可以开始分析！**",
+                "✅ **System ready. You can start analyzing!**",
             ])
         else:
             lines.extend([
                 "",
                 "---",
-                "⚠️ **AI 服务未配置，分析功能不可用**",
-                "请配置 LITELLM_MODEL、LLM_CHANNELS、LITELLM_CONFIG 或任一 provider API Key",
+                "⚠️ **AI service not configured; analysis is unavailable**",
+                "Please configure LITELLM_MODEL, LLM_CHANNELS, LITELLM_CONFIG, or any provider API key",
             ])
         
         return "\n".join(lines)

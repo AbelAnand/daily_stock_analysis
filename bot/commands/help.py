@@ -35,11 +35,11 @@ class HelpCommand(BotCommand):
     
     @property
     def description(self) -> str:
-        return "显示帮助信息"
+        return "Show help information"
     
     @property
     def usage(self) -> str:
-        return "/help [命令名]"
+        return "/help [command]"
     
     def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行帮助命令"""
@@ -54,7 +54,7 @@ class HelpCommand(BotCommand):
             command = dispatcher.get_command(cmd_name)
             
             if command is None:
-                return BotResponse.error_response(f"未知命令: {cmd_name}")
+                return BotResponse.error_response(f"Unknown command: {cmd_name}")
             
             # 构建详细帮助
             help_text = self._format_command_help(command, dispatcher.command_prefix)
@@ -70,9 +70,9 @@ class HelpCommand(BotCommand):
     def _format_help_list(self, commands: List[BotCommand], prefix: str) -> str:
         """格式化命令列表"""
         lines = [
-            "📚 **股票分析助手 - 命令帮助**",
+            "📚 **Stock Analysis Assistant - Command Help**",
             "",
-            "可用命令：",
+            "Available commands:",
             "",
         ]
         
@@ -91,15 +91,15 @@ class HelpCommand(BotCommand):
         lines.extend([
             "",
             "---",
-            f"💡 输入 {prefix}help <命令名> 查看详细用法",
+            f"💡 Type {prefix}help <command> for detailed usage",
             "",
-            "**示例：**",
+            "**Examples:**",
             "",
-            f"• {prefix}analyze 301023 - 奕帆传动",
+            f"• {prefix}analyze AAPL - analyze a single stock",
             "",
-            f"• {prefix}market - 查看大盘复盘",
+            f"• {prefix}market - run the market review",
             "",
-            f"• {prefix}batch - 批量分析自选股",
+            f"• {prefix}batch - analyze your watchlist",
         ])
         
         return "\n".join(lines)
@@ -109,19 +109,20 @@ class HelpCommand(BotCommand):
         lines = [
             f"📖 **{prefix}{command.name}** - {command.description}",
             "",
-            f"**用法：** `{command.usage}`",
+            f"**Usage:** `{command.usage}`",
             "",
         ]
         
         # 别名
         if command.aliases:
-            aliases = [f"`{prefix}{a}`" if a.isascii() else f"`{a}`" for a in command.aliases]
-            lines.append(f"**别名：** {', '.join(aliases)}")
-            lines.append("")
+            aliases = [f"`{prefix}{a}`" for a in command.aliases if a.isascii()]
+            if aliases:
+                lines.append(f"**Aliases:** {', '.join(aliases)}")
+                lines.append("")
         
         # 权限
         if command.admin_only:
-            lines.append("⚠️ **需要管理员权限**")
+            lines.append("⚠️ **Requires admin privileges**")
             lines.append("")
         
         return "\n".join(lines)

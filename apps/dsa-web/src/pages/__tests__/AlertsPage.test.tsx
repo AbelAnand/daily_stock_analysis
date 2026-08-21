@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AlertsPage from '../AlertsPage';
+import { UiLanguageProvider } from '../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../utils/uiLanguage';
+
+function renderPage() {
+  return render(<UiLanguageProvider><AlertsPage /></UiLanguageProvider>);
+}
 
 const {
   listRules,
@@ -73,6 +79,7 @@ function createDeferred<T>() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
   listRules.mockResolvedValue({ items: [rule], total: 1, page: 1, pageSize: 20 });
   listTriggers.mockResolvedValue({
     items: [
@@ -109,7 +116,7 @@ beforeEach(() => {
 
 describe('AlertsPage', () => {
   it('loads rules, trigger history, and notification empty state', async () => {
-    render(<AlertsPage />);
+    renderPage();
 
     expect(screen.getByText('管理事件告警、日线技术指标、自选股、持仓/账户联动和大盘红绿灯规则，执行一次性测试，并查看后台评估任务记录的触发历史。')).toBeInTheDocument();
     expect(await screen.findByText('茅台价格突破')).toBeInTheDocument();
@@ -127,14 +134,14 @@ describe('AlertsPage', () => {
 
   it('runs a dry-run test and renders only declared response fields', async () => {
     listTriggers.mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 20 });
-    render(<AlertsPage />);
+    renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: '测试' }));
 
     await waitFor(() => expect(testRule).toHaveBeenCalledWith(1));
     expect(await screen.findByText('测试结果')).toBeInTheDocument();
     expect(screen.getByText(/600519 price above 1800/)).toBeInTheDocument();
-    expect(screen.getByText(/观察值：1801/)).toBeInTheDocument();
+    expect(screen.getByText(/观察值: 1801/)).toBeInTheDocument();
     expect(screen.queryByText(/realtime_quote/)).not.toBeInTheDocument();
   });
 
@@ -171,7 +178,7 @@ describe('AlertsPage', () => {
         },
       ],
     });
-    render(<AlertsPage />);
+    renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: '测试' }));
 
@@ -181,7 +188,7 @@ describe('AlertsPage', () => {
   });
 
   it('creates a rule through the page form and reloads rules', async () => {
-    render(<AlertsPage />);
+    renderPage();
 
     await screen.findByText('茅台价格突破');
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: 'aapl' } });
@@ -200,7 +207,7 @@ describe('AlertsPage', () => {
 
   it('keeps create form values when create API fails', async () => {
     createRule.mockRejectedValueOnce({ parsedError });
-    render(<AlertsPage />);
+    renderPage();
 
     await screen.findByText('茅台价格突破');
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: 'aapl' } });
@@ -220,7 +227,7 @@ describe('AlertsPage', () => {
       .mockResolvedValueOnce({ items: [], total: 20, page: 2, pageSize: 20 })
       .mockResolvedValue({ items: [rule], total: 20, page: 1, pageSize: 20 });
 
-    render(<AlertsPage />);
+    renderPage();
 
     expect(await screen.findByText('茅台价格突破')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '2' }));
@@ -250,7 +257,7 @@ describe('AlertsPage', () => {
       .mockReturnValueOnce(initialRequest.promise)
       .mockReturnValueOnce(filteredRequest.promise);
 
-    render(<AlertsPage />);
+    renderPage();
 
     fireEvent.change(screen.getByLabelText('启停状态'), { target: { value: 'disabled' } });
     await waitFor(() => expect(listRules).toHaveBeenCalledTimes(2));
@@ -266,7 +273,7 @@ describe('AlertsPage', () => {
   it('renders API errors through ApiErrorAlert', async () => {
     listRules.mockRejectedValueOnce({ parsedError });
 
-    render(<AlertsPage />);
+    renderPage();
 
     expect(await screen.findByText('加载失败')).toBeInTheDocument();
     expect(screen.getByText('告警 API 不可用')).toBeInTheDocument();

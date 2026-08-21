@@ -42,7 +42,7 @@ class TestEfinanceMainIndices(unittest.TestCase):
         self.assertIsNotNone(data)
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["code"], "sh000001")
-        self.assertEqual(data[0]["name"], "上证指数")
+        self.assertEqual(data[0]["name"], "SSE Composite")
         self.assertAlmostEqual(data[0]["open"], 3188.0)
         self.assertAlmostEqual(data[0]["current"], 3200.0)
 

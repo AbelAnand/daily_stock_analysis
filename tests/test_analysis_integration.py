@@ -113,7 +113,7 @@ class TestAnalysisIntegration:
         )
 
         assert response.status_code == 400
-        assert "最多支持" in response.json()["message"]
+        assert "supports at most" in response.json()["message"]
 
     def test_trigger_analysis_metadata_isolation_in_batch(self, client, mock_task_queue):
         """Test that single-stock metadata isn't applied to batch tasks."""

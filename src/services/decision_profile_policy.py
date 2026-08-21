@@ -229,8 +229,8 @@ def _warnings_for_guardrail(guardrail: GuardrailResult) -> list[dict[str, object
             {
                 "code": "action_adjusted_by_guardrail",
                 "message": (
-                    f"原始动作 {guardrail.raw_action} 已由风控调整为 "
-                    f"{guardrail.final_action}。"
+                    f"Original action {guardrail.raw_action} was adjusted by the risk guardrail to "
+                    f"{guardrail.final_action}."
                 ),
                 "params": {
                     "raw_action": guardrail.raw_action,
@@ -242,7 +242,7 @@ def _warnings_for_guardrail(guardrail: GuardrailResult) -> list[dict[str, object
         warnings.append(
             {
                 "code": "action_blocked_by_guardrail",
-                "message": "重评估结果未通过持久化风控，未保存为决策信号。",
+                "message": "Reassessment result failed the persistence risk guardrail and was not saved as a decision signal.",
                 "params": {
                     "raw_action": guardrail.raw_action,
                     "final_action": guardrail.final_action,

@@ -53,17 +53,20 @@ describe('llmProviderTemplates', () => {
   });
 
   it('only defines static provider-template capabilities for P2 UI hints', () => {
-    expect(Object.keys(LLM_PROVIDER_CAPABILITY_LABELS).sort()).toEqual([
-      'aggregator',
-      'local-runtime',
-      'model-discovery',
-      'official-api',
-      'openai-compatible',
-      'vision',
-    ]);
-    expect(LLM_PROVIDER_CAPABILITY_LABELS).not.toHaveProperty('json');
-    expect(LLM_PROVIDER_CAPABILITY_LABELS).not.toHaveProperty('tools');
-    expect(LLM_PROVIDER_CAPABILITY_LABELS).not.toHaveProperty('stream');
+    for (const language of ['zh', 'en'] as const) {
+      const labels = LLM_PROVIDER_CAPABILITY_LABELS[language];
+      expect(Object.keys(labels).sort()).toEqual([
+        'aggregator',
+        'local-runtime',
+        'model-discovery',
+        'official-api',
+        'openai-compatible',
+        'vision',
+      ]);
+      expect(labels).not.toHaveProperty('json');
+      expect(labels).not.toHaveProperty('tools');
+      expect(labels).not.toHaveProperty('stream');
+    }
   });
 
   it('uses volcengine as the default Volcengine Ark provider id', () => {

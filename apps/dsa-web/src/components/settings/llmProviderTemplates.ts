@@ -1,3 +1,5 @@
+import type { UiLanguage } from '../../i18n/uiText';
+
 export type ChannelProtocol = 'openai' | 'deepseek' | 'gemini' | 'anthropic' | 'vertex_ai' | 'ollama';
 export type LLMProviderCapability =
   | 'openai-compatible'
@@ -21,30 +23,58 @@ export interface LLMProviderTemplate {
   }>;
 }
 
-export const LLM_PROVIDER_CAPABILITY_LABELS: Record<LLMProviderCapability, { label: string; hint: string }> = {
-  'openai-compatible': {
-    label: 'OpenAI 兼容',
-    hint: '按 OpenAI-compatible endpoint 配置 Base URL，不额外拼接 /chat/completions。',
+export const LLM_PROVIDER_CAPABILITY_LABELS: Record<UiLanguage, Record<LLMProviderCapability, { label: string; hint: string }>> = {
+  zh: {
+    'openai-compatible': {
+      label: 'OpenAI 兼容',
+      hint: '按 OpenAI-compatible endpoint 配置 Base URL，不额外拼接 /chat/completions。',
+    },
+    aggregator: {
+      label: '聚合平台',
+      hint: '模型可见性、路由和价格可能随账号权限与平台策略变化。',
+    },
+    'official-api': {
+      label: '官方 API',
+      hint: '使用服务商官方协议或官方兼容入口。',
+    },
+    'model-discovery': {
+      label: '可获取模型',
+      hint: '支持尝试通过 /models 获取模型列表；实际结果仍取决于账号权限和 API Key。',
+    },
+    vision: {
+      label: 'Vision 提示',
+      hint: '模板提示该 provider 常用于 Vision 场景；具体模型能力仍以账号和模型列表为准。',
+    },
+    'local-runtime': {
+      label: '本地运行',
+      hint: '需要当前运行环境能访问对应本地服务。',
+    },
   },
-  aggregator: {
-    label: '聚合平台',
-    hint: '模型可见性、路由和价格可能随账号权限与平台策略变化。',
-  },
-  'official-api': {
-    label: '官方 API',
-    hint: '使用服务商官方协议或官方兼容入口。',
-  },
-  'model-discovery': {
-    label: '可获取模型',
-    hint: '支持尝试通过 /models 获取模型列表；实际结果仍取决于账号权限和 API Key。',
-  },
-  vision: {
-    label: 'Vision 提示',
-    hint: '模板提示该 provider 常用于 Vision 场景；具体模型能力仍以账号和模型列表为准。',
-  },
-  'local-runtime': {
-    label: '本地运行',
-    hint: '需要当前运行环境能访问对应本地服务。',
+  en: {
+    'openai-compatible': {
+      label: 'OpenAI compatible',
+      hint: 'Configure the Base URL as an OpenAI-compatible endpoint; do not append /chat/completions.',
+    },
+    aggregator: {
+      label: 'Aggregator',
+      hint: 'Model visibility, routing, and pricing may vary with account permissions and platform policy.',
+    },
+    'official-api': {
+      label: 'Official API',
+      hint: "Uses the provider's official protocol or official-compatible endpoint.",
+    },
+    'model-discovery': {
+      label: 'Model discovery',
+      hint: 'Can try fetching the model list via /models; actual results still depend on account permissions and API Key.',
+    },
+    vision: {
+      label: 'Vision hint',
+      hint: 'The template suggests this provider is commonly used for vision scenarios; actual model capability still depends on the account and model list.',
+    },
+    'local-runtime': {
+      label: 'Local runtime',
+      hint: 'Requires the current runtime environment to be able to reach the corresponding local service.',
+    },
   },
 };
 
@@ -223,6 +253,53 @@ export function getProviderTemplate(channelId: string): LLMProviderTemplate | un
 
 export function isKnownProviderTemplate(channelId: string): boolean {
   return channelId !== 'custom' && Boolean(getProviderTemplate(channelId));
+}
+
+const LLM_PROVIDER_EN_OVERRIDES: Partial<Record<string, { label?: string; configHint?: string }>> = {
+  aihubmix: { label: 'AIHubmix (aggregator)' },
+  anspire: {
+    label: 'Anspire Open (models + search)',
+    configHint: 'The same ANSPIRE_API_KEYS can be reused across search and LLM channels. The models and gateway below are configuration examples; actual availability depends on account permissions and the console — try "Test connection" first to confirm.',
+  },
+  deepseek: { label: 'DeepSeek (official)' },
+  dashscope: { label: 'Qwen (DashScope)' },
+  zhipu: { label: 'Zhipu GLM' },
+  moonshot: { label: 'Moonshot (Kimi)' },
+  minimax: { label: 'MiniMax (official)' },
+  volcengine: {
+    label: 'Volcengine Ark (Doubao)',
+    configHint: 'Make sure not to mix the online inference endpoint/region with the Coding Plan-only endpoint.',
+  },
+  siliconflow: {
+    configHint: 'The model list and visibility depend on account permissions and the API Key.',
+  },
+  openrouter: {
+    configHint: 'The model list and visibility depend on account permissions and the API Key.',
+  },
+  gemini: { label: 'Gemini (official)' },
+  anthropic: { label: 'Anthropic (official)' },
+  openai: { label: 'OpenAI (official)' },
+  ollama: {
+    label: 'Ollama (local)',
+    configHint: 'Requires that this machine, Docker, or a self-hosted runner can reach the Ollama service.',
+  },
+  custom: { label: 'Custom channel' },
+};
+
+export function getProviderDisplayLabel(channelId: string, language: UiLanguage, fallbackLabel?: string): string {
+  const template = getProviderTemplate(channelId);
+  if (language === 'en') {
+    return LLM_PROVIDER_EN_OVERRIDES[channelId]?.label ?? template?.label ?? fallbackLabel ?? channelId;
+  }
+  return template?.label ?? fallbackLabel ?? channelId;
+}
+
+export function getProviderConfigHint(channelId: string, language: UiLanguage): string | undefined {
+  const template = getProviderTemplate(channelId);
+  if (language === 'en') {
+    return LLM_PROVIDER_EN_OVERRIDES[channelId]?.configHint ?? template?.configHint;
+  }
+  return template?.configHint;
 }
 
 export const MODEL_PLACEHOLDERS_BY_PROTOCOL: Record<ChannelProtocol, string> = {

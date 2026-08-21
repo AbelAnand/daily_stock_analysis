@@ -179,7 +179,7 @@ class TestTushareFetcherFetchRawData(unittest.TestCase):
         with patch.object(fetcher, "_check_rate_limit"):
             with self.assertRaises(DataFetchError) as ctx:
                 fetcher._fetch_raw_data("AAPL", "2026-01-01", "2026-01-05")
-        self.assertIn("不支持美股", str(ctx.exception))
+        self.assertIn("does not support US stock", str(ctx.exception))
         fetcher._api.daily.assert_not_called()
 
     def test_fetch_raw_data_api_unconfigured_raises(self) -> None:
@@ -189,7 +189,7 @@ class TestTushareFetcherFetchRawData(unittest.TestCase):
         self.assertIsNone(fetcher._api)
         with self.assertRaises(DataFetchError) as ctx:
             fetcher._fetch_raw_data("600519", "2026-01-01", "2026-01-05")
-        self.assertIn("未初始化", str(ctx.exception))
+        self.assertIn("not initialized", str(ctx.exception))
 
     def test_fetch_raw_data_quota_exception_becomes_rate_limit(self) -> None:
         fetcher = self._make_fetcher()

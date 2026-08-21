@@ -1,7 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import type { RunFlowEdge, RunFlowLane, RunFlowNode } from '../../../types/runFlow';
 import { RunFlowGraph } from '../RunFlowGraph';
+
+function render(ui: ReactElement) {
+  return rtlRender(<UiLanguageProvider>{ui}</UiLanguageProvider>);
+}
 
 const lanes: RunFlowLane[] = [
   { id: 'entry', label: '入口', order: 1 },
@@ -60,6 +67,10 @@ const heightFor = (testId: string): number => (
 );
 
 describe('RunFlowGraph', () => {
+  beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+  });
+
   it('renders auto-layered lanes, edge legend labels, and clickable nodes', () => {
     const onSelectNode = vi.fn();
     const { container } = render(

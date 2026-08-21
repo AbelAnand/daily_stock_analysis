@@ -487,7 +487,7 @@ def test_codex_backend_keeps_pre_turn_failure_at_zero_steps(monkeypatch) -> None
 
     assert result.success is False
     assert result.error_code == "protocol_error"
-    assert result.error_message == "Codex Agent 暂时无法完成本次问股，请前往 Agent 设置查看运行状态。"
+    assert result.error_message == "The Codex agent could not complete this stock Q&A for now. Check the runtime status in Agent settings."
     assert "thread-123" not in result.error_message
     assert result.diagnostics["internal_error"] == "turn/start failed for thread-123"
     assert result.total_steps == 0

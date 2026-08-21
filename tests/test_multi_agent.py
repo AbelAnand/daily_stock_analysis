@@ -1643,8 +1643,8 @@ class TestOrchestratorExecution(unittest.TestCase):
             tool_registry=MagicMock(),
             llm_adapter=MagicMock(),
         ).build_user_message(ctx)
-        self.assertIn("执行超时 1 个", prompt)
-        self.assertIn("signal 无法识别 1 个", prompt)
+        self.assertIn("execution timeout: 1", prompt)
+        self.assertIn("unrecognized signal: 1", prompt)
 
     def test_specialist_batch_timeout_is_split_across_concurrency_waves(self):
         orch = self._make_orchestrator(config=SimpleNamespace(agent_skill_concurrency=2))
@@ -1694,7 +1694,7 @@ class TestOrchestratorExecution(unittest.TestCase):
         self.assertIsNotNone(result.dashboard)
         self.assertIsNotNone(result.content)
         self.assertIn("insufficient budget", (result.error or "").lower())
-        self.assertIn("[降级结果]", result.dashboard["analysis_summary"])
+        self.assertIn("[Degraded result]", result.dashboard["analysis_summary"])
         technical.run.assert_called_once()
         intel.run.assert_not_called()
 
@@ -1817,7 +1817,7 @@ class TestOrchestratorExecution(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertIn("timed out", result.error)
         self.assertEqual(result.dashboard["decision_type"], "buy")
-        self.assertEqual(result.dashboard["operation_advice"], "买入")
+        self.assertEqual(result.dashboard["operation_advice"], "Buy")
         self.assertEqual(
             result.dashboard["dashboard"]["battle_plan"]["sniper_points"]["stop_loss"],
             1760.0,
@@ -1853,7 +1853,7 @@ class TestOrchestratorExecution(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertIn("timed out", result.error)
         self.assertEqual(result.dashboard["decision_type"], "buy")
-        self.assertIn("降级结果", result.dashboard["analysis_summary"])
+        self.assertIn("Degraded result", result.dashboard["analysis_summary"])
         self.assertEqual(
             result.dashboard["dashboard"]["battle_plan"]["sniper_points"]["stop_loss"],
             295.0,
@@ -2171,7 +2171,7 @@ class TestOrchestratorExecution(unittest.TestCase):
                 result = orch.chat("hello", "session-2")
 
         self.assertFalse(result.success)
-        add_message.assert_any_call("session-2", "assistant", "[分析失败] boom")
+        add_message.assert_any_call("session-2", "assistant", "[Analysis failed] boom")
 
     def test_execute_pipeline_fails_when_dashboard_parse_fails(self):
         orch = self._make_orchestrator()
@@ -2978,7 +2978,7 @@ class TestRiskOverride(unittest.TestCase):
 
         self.assertEqual(dashboard["decision_type"], "hold")
         self.assertLessEqual(dashboard["sentiment_score"], 59)
-        self.assertIn("风控接管", dashboard["risk_warning"])
+        self.assertIn("Risk override", dashboard["risk_warning"])
         self.assertEqual(ctx.opinions[0].signal, "hold")
 
     def test_risk_override_normalizes_strong_buy_before_veto(self):
@@ -3097,7 +3097,7 @@ class TestResearchCommandTimeout(unittest.TestCase):
              )):
             response = cmd.execute(msg, ["600519"])
 
-        self.assertIn("超时", response.text)
+        self.assertIn("timed out", response.text)
 
     def test_research_recognizes_five_letter_us_ticker(self):
         from bot.commands.research import ResearchCommand

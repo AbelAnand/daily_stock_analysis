@@ -327,7 +327,7 @@ class SearchServiceConcurrencyTestCase(unittest.TestCase):
             patch("src.search_service._call_topic_news_in_subprocess") as subprocess_call,
         ):
             started = time.monotonic()
-            with self.assertRaisesRegex(TimeoutError, "调用截止时间"):
+            with self.assertRaisesRegex(TimeoutError, "call deadline"):
                 service.search_topic_news_bounded("影视传媒", max_results=2, timeout_seconds=0.05)
             elapsed = time.monotonic() - started
 
@@ -377,7 +377,7 @@ class SearchServiceConcurrencyTestCase(unittest.TestCase):
 
     def test_bounded_topic_search_timeout_terminates_and_reaps_process(self):
         with patch("src.search_service._search_topic_news_process_worker", _hang_topic_news_process_worker):
-            with self.assertRaisesRegex(TimeoutError, "已终止请求进程"):
+            with self.assertRaisesRegex(TimeoutError, "request process terminated"):
                 _call_topic_news_in_subprocess(
                     constructor_kwargs={
                         "searxng_public_instances_enabled": False,
@@ -420,7 +420,7 @@ class SearchServiceConcurrencyTestCase(unittest.TestCase):
         slots.acquire.return_value = False
 
         with patch("src.search_service._SEARCH_TIMEOUT_WORKER_SLOTS", slots):
-            with self.assertRaisesRegex(RuntimeError, "并发已满"):
+            with self.assertRaisesRegex(RuntimeError, "concurrency limit reached"):
                 _call_topic_news_in_subprocess(
                     constructor_kwargs={},
                     topic="影视传媒",

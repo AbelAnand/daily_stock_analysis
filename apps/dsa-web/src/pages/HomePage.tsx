@@ -651,7 +651,7 @@ const HomePage: React.FC = () => {
     refreshStockBar,
     syncTaskCreated,
     syncTaskUpdated,
-    syncTaskFailed,
+    syncTaskFailed: useCallback((task: TaskInfo) => syncTaskFailed(task, uiLanguage), [syncTaskFailed, uiLanguage]),
     refreshActiveTasks,
     removeTask,
     onDashboardDataRefresh: handleDashboardDataRefresh,
@@ -837,9 +837,10 @@ const HomePage: React.FC = () => {
         originalQuery: query,
         selectionSource: selectionSource ?? 'manual',
         skills: analysisSkills ?? selectedAnalysisSkills,
+        uiLanguage,
       });
     },
-    [query, selectedAnalysisSkills, submitAnalysis],
+    [query, selectedAnalysisSkills, submitAnalysis, uiLanguage],
   );
 
   useEffect(() => {
@@ -879,8 +880,9 @@ const HomePage: React.FC = () => {
       selectionSource: 'manual',
       forceRefresh: true,
       skills: selectedAnalysisSkills,
+      uiLanguage,
     });
-  }, [selectedAnalysisSkills, selectedReport, submitAnalysis]);
+  }, [selectedAnalysisSkills, selectedReport, submitAnalysis, uiLanguage]);
 
   const openTaskRunFlow = useCallback((task: TaskInfo) => {
     const stock = task.stockName || task.stockCode || task.taskId;

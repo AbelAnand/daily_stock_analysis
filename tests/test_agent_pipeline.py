@@ -446,7 +446,7 @@ class TestAgentFactorySkillBaseline(unittest.TestCase):
             instructions="bull_trend instructions",
         )
 
-        self.assertIn("严进策略", kwargs["default_skill_policy"])
+        self.assertIn("Strict entry", kwargs["default_skill_policy"])
         self.assertTrue(kwargs["use_legacy_default_prompt"])
         skill_manager.activate.assert_called_once_with(["bull_trend"])
 
@@ -467,7 +467,7 @@ class TestAgentFactorySkillBaseline(unittest.TestCase):
             instructions="bull_trend instructions",
         )
 
-        self.assertIn("严进策略", kwargs["default_skill_policy"])
+        self.assertIn("Strict entry", kwargs["default_skill_policy"])
         self.assertTrue(kwargs["use_legacy_default_prompt"])
         skill_manager.activate.assert_called_once_with(["bull_trend"])
 
@@ -509,7 +509,7 @@ class TestAgentFactorySkillBaseline(unittest.TestCase):
             instructions="bull_trend instructions",
         )
 
-        self.assertIn("严进策略", kwargs["default_skill_policy"])
+        self.assertIn("Strict entry", kwargs["default_skill_policy"])
         self.assertTrue(kwargs["use_legacy_default_prompt"])
         skill_manager.activate.assert_called_once_with(["bull_trend"])
 
@@ -1422,7 +1422,7 @@ class TestAgentResultConversion(unittest.TestCase):
         self.assertEqual(result.dashboard["sentiment_score"], 62)
         self.assertEqual(result.dashboard["core_conclusion"]["one_sentence"], result.analysis_summary)
         self.assertEqual(result.dashboard["intelligence"]["risk_alerts"], ["趋势跌破支撑需减仓"])
-        self.assertEqual(result.dashboard["battle_plan"]["sniper_points"]["stop_loss"], "待补充")
+        self.assertEqual(result.dashboard["battle_plan"]["sniper_points"]["stop_loss"], "TBD")
 
     def test_convert_invalid_dashboard_normalizes_strong_trend_decision_type(self):
         """Fallback preserves strong advice text while keeping stable decision_type values."""

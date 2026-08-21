@@ -93,7 +93,7 @@ class TaskService:
 
         normalized_code = resolve_index_stock_code_for_analysis(code)
         if not normalized_code:
-            raise ValueError("股票代码不能为空或仅包含空白字符")
+            raise ValueError("Stock code must not be empty or whitespace only")
 
         task_id = f"{normalized_code}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
 
@@ -109,13 +109,13 @@ class TaskService:
         )
 
         logger.info(
-            f"[TaskService] 已提交股票 {normalized_code} 的分析任务, "
+            f"[TaskService] Submitted analysis task for stock {normalized_code}, "
             f"task_id={task_id}, report_type={report_type.value}"
         )
 
         return {
             "success": True,
-            "message": "分析任务已提交，将异步执行并推送通知",
+            "message": "Analysis task submitted; it will run asynchronously and push a notification",
             "code": normalized_code,
             "task_id": task_id,
             "report_type": report_type.value
@@ -177,7 +177,7 @@ class TaskService:
             from src.config import get_config
             from main import StockAnalysisPipeline
 
-            logger.info(f"[TaskService] 开始分析股票: {code}")
+            logger.info(f"[TaskService] Starting analysis for stock: {code}")
 
             # 创建分析管道
             config = get_config()
@@ -215,10 +215,10 @@ class TaskService:
                         "result": result_data
                     })
 
-                logger.info(f"[TaskService] 股票 {code} 分析完成: {result.operation_advice}")
+                logger.info(f"[TaskService] Stock {code} analysis completed: {result.operation_advice}")
                 return {"success": True, "task_id": task_id, "result": result_data}
             else:
-                fail_message = "分析返回空结果"
+                fail_message = "Analysis returned an empty result"
                 if result is not None:
                     fail_message = result.error_message or fail_message
                 with self._tasks_lock:
@@ -228,12 +228,12 @@ class TaskService:
                         "error": fail_message
                     })
 
-                logger.warning(f"[TaskService] 股票 {code} 分析失败: {fail_message}")
+                logger.warning(f"[TaskService] Stock {code} analysis failed: {fail_message}")
                 return {"success": False, "task_id": task_id, "error": fail_message}
 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"[TaskService] 股票 {code} 分析异常: {error_msg}")
+            logger.error(f"[TaskService] Stock {code} analysis error: {error_msg}")
 
             with self._tasks_lock:
                 self._tasks[task_id].update({

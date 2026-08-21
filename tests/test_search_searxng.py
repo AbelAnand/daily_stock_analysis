@@ -199,7 +199,7 @@ class TestSearXNGSearchProvider(unittest.TestCase):
         resp = provider.search("query", max_results=5)
 
         self.assertFalse(resp.success)
-        self.assertIn("格式无效", resp.error_message or "")
+        self.assertIn("Invalid response format", resp.error_message or "")
 
     @patch("src.search_service._get_with_retry")
     def test_self_hosted_failover_tries_next_instance_on_timeout(self, mock_get):
@@ -363,7 +363,7 @@ class TestSearXNGSearchProvider(unittest.TestCase):
         resp = provider.search("query", max_results=5)
 
         self.assertFalse(resp.success)
-        self.assertIn("公共 SearXNG 实例", resp.error_message or "")
+        self.assertIn("public SearXNG instances", resp.error_message or "")
         self.assertEqual(mock_get.call_count, 1)
 
     @patch("src.search_service.time.time")

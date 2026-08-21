@@ -341,4 +341,4 @@ def test_analyzer_prompt_renders_daily_market_context_before_technical_data() ->
 
     assert "大盘环境摘要" in prompt
     assert "大盘退潮" in prompt
-    assert prompt.index("大盘环境摘要") < prompt.index("技术面数据")
+    assert prompt.index("大盘环境摘要") < prompt.index("Technical Data")

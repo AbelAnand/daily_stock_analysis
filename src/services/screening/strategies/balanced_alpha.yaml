@@ -2,8 +2,8 @@
 # Licensed under Apache-2.0 and modified for daily_stock_analysis.
 # 均衡多因子策略
 name: balanced_alpha
-display_name: 均衡多因子
-description: 综合估值、资金、动量、稳定性的通用候选发现策略
+display_name: Balanced Multi-factor
+description: General-purpose candidate discovery combining valuation, capital flow, momentum and stability
 version: "1.1"
 category: framework
 tags: [multi_factor, balanced, llm_friendly]
@@ -14,7 +14,7 @@ style:
   execution_style: multi_factor
   market_regime: [neutral, rotation]
   capital_profile: medium_liquidity
-  ui_badge: 多因子
+  ui_badge: Multi-factor
 
 screening:
   enabled: true
@@ -67,8 +67,8 @@ screening:
     volume_spike_ratio: 5.5
     hot_money_penalty: 2.2
   ranking_hints: |
-    优先关注：
-    1. 多个维度都不差的候选，而不是单一指标极端突出
-    2. LLM 需要比较候选的风格差异，避免最终名单过度集中在同一逻辑
-    3. 对估值、资金、趋势、风险之间的冲突给出清楚解释
+    Priorities:
+    1. Candidates that are solid across several dimensions rather than extreme on a single metric
+    2. The LLM should compare style differences between candidates so the final list is not concentrated in one logic
+    3. Explain clearly any conflicts between valuation, capital flow, trend and risk
   max_output: 5

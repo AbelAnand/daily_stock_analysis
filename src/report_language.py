@@ -39,6 +39,7 @@ _OPERATION_ADVICE_CANONICAL_MAP = {
     "加仓": "buy",
     "accumulate": "buy",
     "add position": "buy",
+    "add": "buy",
     "持有": "hold",
     "洗盘观察": "hold",
     "观察": "hold",
@@ -47,9 +48,11 @@ _OPERATION_ADVICE_CANONICAL_MAP = {
     "watch": "watch",
     "wait": "watch",
     "wait and see": "watch",
+    "observe": "watch",
     "减仓": "reduce",
     "reduce": "reduce",
     "trim": "reduce",
+    "reduce position": "reduce",
     "卖出": "sell",
     "sell": "sell",
     "强烈卖出": "strong_sell",
@@ -93,6 +96,11 @@ _TREND_PREDICTION_CANONICAL_MAP = {
     "neutral": "sideways",
     "sideways": "sideways",
     "range-bound": "sideways",
+    "range bound": "sideways",
+    "consolidation": "sideways",
+    "choppy": "sideways",
+    "strong uptrend": "strong_bullish",
+    "strong downtrend": "strong_bearish",
     "看空": "bearish",
     "bearish": "bearish",
     "downtrend": "bearish",
@@ -120,6 +128,7 @@ _CONFIDENCE_LEVEL_CANONICAL_MAP = {
     "中": "medium",
     "medium": "medium",
     "med": "medium",
+    "moderate": "medium",
     "低": "low",
     "low": "low",
     "높음": "high",
@@ -493,6 +502,8 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "strategy_supporting_skills_label": "支持策略",
         "strategy_opposing_skills_label": "反方策略",
         "strategy_invalid_opinions_label": "另有 {count} 个策略解析失败",
+        "buy_reason_label": "操作理由",
+        "risk_warning_label": "风险提示",
     },
     "en": {
         "dashboard_title": "Decision Dashboard",
@@ -627,6 +638,8 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "strategy_supporting_skills_label": "Supporting Strategies",
         "strategy_opposing_skills_label": "Opposing Strategies",
         "strategy_invalid_opinions_label": "{count} additional strategies failed to produce valid signals",
+        "buy_reason_label": "Rationale",
+        "risk_warning_label": "Risk Warning",
     },
     "ko": {
         "dashboard_title": "결정 대시보드",
@@ -761,6 +774,8 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "strategy_supporting_skills_label": "지지 전략",
         "strategy_opposing_skills_label": "반대 전략",
         "strategy_invalid_opinions_label": "추가로 {count}개 전략이 유효한 신호를 생성하지 못했습니다",
+        "buy_reason_label": "판단 근거",
+        "risk_warning_label": "리스크 경고",
     },
 }
 
@@ -938,7 +953,7 @@ def _is_placeholder_stock_name(value: Any, code: Any = None) -> bool:
     if code_text and lowered == code_text.lower():
         return True
 
-    return text.startswith("股票")
+    return text.startswith("股票") or lowered.startswith("stock ")
 
 
 def _translate_from_map(

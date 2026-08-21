@@ -17,7 +17,7 @@ from src.repositories.decision_signal_repo import (
     DecisionSignalRepository,
 )
 from src.repositories.portfolio_repo import PortfolioRepository
-from src.report_language import normalize_report_language
+from src.report_language import localize_confidence_level, normalize_report_language
 from src.schemas.decision_action import (
     DecisionAction,
     build_action_fields,
@@ -479,7 +479,8 @@ class DecisionSignalService:
                 trend_prediction=raw.get("trend_prediction") or getattr(record, "trend_prediction", None) or "",
                 operation_advice=raw.get("operation_advice") or getattr(record, "operation_advice", None) or "",
                 decision_type=raw.get("decision_type") or "",
-                confidence_level=raw.get("confidence_level") or "中",
+                confidence_level=raw.get("confidence_level")
+                or localize_confidence_level("medium", normalize_report_language(raw.get("report_language"))),
                 report_language=normalize_report_language(raw.get("report_language")),
                 action=history_action,
                 action_label=history_action_label,
@@ -609,6 +610,20 @@ class DecisionSignalService:
                     ]
                 )
             hints = (
+                "wait",
+                "pending",
+                "needs confirmation",
+                "lacks confirmation",
+                "unconfirmed",
+                "pullback",
+                "support",
+                "resistance",
+                "risk",
+                "capital flow",
+                "breakout",
+                "don't chase",
+                "not advisable",
+                # Chinese-language report content uses these equivalents (report_language="zh").
                 "等待",
                 "待",
                 "需要确认",

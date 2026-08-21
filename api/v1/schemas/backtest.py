@@ -13,27 +13,27 @@ from src.schemas.decision_action import DecisionAction
 
 
 class BacktestRunRequest(BaseModel):
-    code: Optional[str] = Field(None, description="仅回测指定股票")
-    force: bool = Field(False, description="强制重新计算")
-    eval_window_days: Optional[int] = Field(None, ge=1, le=120, description="评估窗口（交易日数）")
-    min_age_days: Optional[int] = Field(None, ge=0, le=365, description="分析记录最小天龄（0=不限）")
-    analysis_date_from: Optional[date] = Field(None, description="分析日期起始（含）")
-    analysis_date_to: Optional[date] = Field(None, description="分析日期结束（含）")
-    limit: int = Field(200, ge=1, le=2000, description="最多处理的分析记录数")
+    code: Optional[str] = Field(None, description="Only backtest the given stock code")
+    force: bool = Field(False, description="Force recomputation")
+    eval_window_days: Optional[int] = Field(None, ge=1, le=120, description="Evaluation window (trading days)")
+    min_age_days: Optional[int] = Field(None, ge=0, le=365, description="Minimum age of analysis records in days (0 = no limit)")
+    analysis_date_from: Optional[date] = Field(None, description="Analysis date from (inclusive)")
+    analysis_date_to: Optional[date] = Field(None, description="Analysis date to (inclusive)")
+    limit: int = Field(200, ge=1, le=2000, description="Maximum number of analysis records to process")
 
 
 class BacktestRunResponse(BaseModel):
-    processed: int = Field(..., description="候选记录数")
-    saved: int = Field(..., description="写入回测结果数")
-    completed: int = Field(..., description="完成回测数")
-    insufficient: int = Field(..., description="数据不足数")
-    errors: int = Field(..., description="错误数")
+    processed: int = Field(..., description="Number of candidate records")
+    saved: int = Field(..., description="Number of backtest results written")
+    completed: int = Field(..., description="Number of completed backtests")
+    insufficient: int = Field(..., description="Number of records with insufficient data")
+    errors: int = Field(..., description="Number of errors")
     applied_eval_window_days: Optional[int] = Field(
         ...,
-        description="实际生效的评估窗口（交易日数）",
+        description="Effective evaluation window (trading days)",
     )
-    message: Optional[str] = Field(None, description="空结果或降级时的诊断说明")
-    diagnostics: Dict[str, Any] = Field(default_factory=dict, description="回测筛选与诊断信息")
+    message: Optional[str] = Field(None, description="Diagnostic note for empty or degraded results")
+    diagnostics: Dict[str, Any] = Field(default_factory=dict, description="Backtest filtering and diagnostics info")
 
 
 class BacktestResultItem(BaseModel):

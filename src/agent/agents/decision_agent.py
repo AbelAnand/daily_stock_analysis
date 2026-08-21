@@ -60,11 +60,11 @@ Requirements:
 - Highlight the main signal, key reasoning, and major risks
 - Do NOT output JSON or code fences unless the user explicitly asks for them
 """
-            if report_language == "en":
-                return prompt + "\nAlways answer in English.\n"
+            if report_language == "zh":
+                return prompt + "\n默认使用中文回答。\n"
             if report_language == "ko":
                 return prompt + "\n항상 한국어로 답변하세요.\n"
-            return prompt + "\n默认使用中文回答。\n"
+            return prompt + "\nAlways answer in English.\n"
 
         skills = ""
         if self.skill_instructions:
@@ -157,7 +157,7 @@ keys: ``phase_context``, ``action_window``, ``immediate_action``,
 current action, watch conditions, and next check point. For pre-market,
 non-trading, or unknown phases, do not invent today's intraday movement. If
 quote, daily bars, or technical data is stale, fallback, missing, fetch_failed,
-partial, or estimated, ``confidence_level`` must not be High/高 and the
+partial, or estimated, ``confidence_level`` must not be High and the
 limitation must be reflected in ``confidence_reason`` or ``data_limitations``.
 
 The nested ``dashboard`` object should include optional ``signal_attribution`` when
@@ -172,13 +172,13 @@ should sum to 100; all-zero means no effective signal and must not be faked.
 ``strongest_bullish_signal`` is the name of the strongest bullish signal (e.g., MACD golden cross, earnings surprise, low valuation).
 ``strongest_bearish_signal`` is the name of the strongest bearish signal (e.g., MA death cross, earnings warning, high valuation).
 """
-        if report_language == "en":
+        if report_language == "zh":
             return prompt + """
 
-## Output Language
-- Keep every JSON key unchanged.
-- `decision_type` must remain `buy|hold|sell`.
-- Write all human-readable JSON values in English.
+## 输出语言
+- 所有 JSON 键名保持不变。
+- `decision_type` 必须保持为 `buy|hold|sell`。
+- 所有面向用户的人类可读文本值必须使用中文。
 """
         if report_language == "ko":
             return prompt + """
@@ -190,10 +190,10 @@ should sum to 100; all-zero means no effective signal and must not be faked.
 """
         return prompt + """
 
-## 输出语言
-- 所有 JSON 键名保持不变。
-- `decision_type` 必须保持为 `buy|hold|sell`。
-- 所有面向用户的人类可读文本值必须使用中文。
+## Output Language
+- Keep every JSON key unchanged.
+- `decision_type` must remain `buy|hold|sell`.
+- Write all human-readable JSON values in English.
 """
 
     def build_user_message(self, ctx: AgentContext) -> str:
@@ -234,10 +234,10 @@ should sum to 100; all-zero means no effective signal and must not be faked.
         invalid_opinions = ctx.meta.get("invalid_opinions") or []
         if invalid_opinions:
             reason_labels = {
-                "skill_timeout": "执行超时",
-                "skill_error": "执行异常或未产出结构化观点",
-                "missing_signal": "signal 缺失",
-                "unrecognized_signal": "signal 无法识别",
+                "skill_timeout": "execution timeout",
+                "skill_error": "execution error or no structured opinion produced",
+                "missing_signal": "missing signal",
+                "unrecognized_signal": "unrecognized signal",
             }
             reason_counts = {}
             for item in invalid_opinions:
@@ -245,15 +245,15 @@ should sum to 100; all-zero means no effective signal and must not be faked.
                     continue
                 reason = str(item.get("reason") or "unrecognized_signal")
                 reason_counts[reason] = reason_counts.get(reason, 0) + 1
-            reason_summary = "、".join(
-                f"{reason_labels.get(reason, reason)} {count} 个"
+            reason_summary = ", ".join(
+                f"{reason_labels.get(reason, reason)}: {count}"
                 for reason, count in reason_counts.items()
             )
             parts.append("## Invalid Skill Opinions (Diagnostics only — not in evidence chain)")
             parts.append(
-                f"共 {len(invalid_opinions)} 个 skill 观点未进入证据链"
-                f"（{reason_summary or '原因未分类'}）；"
-                f"仅供你在 data_limitations 中标注，不得作为决策依据。"
+                f"{len(invalid_opinions)} skill opinion(s) were excluded from the evidence chain "
+                f"({reason_summary or 'reason unclassified'}); "
+                f"mention this only under data_limitations and do not use it as a basis for the decision."
             )
             parts.append("")
 

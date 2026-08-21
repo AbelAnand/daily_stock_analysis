@@ -1377,7 +1377,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             self._ensure_intelligence_items_unique_index()
 
             self._initialized = True
-            logger.info(f"数据库初始化完成: {db_url}")
+            logger.info(f"Database initialized: {db_url}")
 
             # 注册退出钩子，确保程序退出时关闭数据库连接
             atexit.register(DatabaseManager._cleanup_engine, self._engine)
@@ -1387,7 +1387,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 if created_engine is not None:
                     created_engine.dispose()
             except Exception as cleanup_exc:
-                logger.warning("数据库初始化失败后的引擎清理也失败: %s", cleanup_exc)
+                logger.warning("Engine cleanup after database initialization failure also failed: %s", cleanup_exc)
             self._engine = None
             self._SessionLocal = None
             self.__class__._instance = None
@@ -1764,7 +1764,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 for column in inspect(self._engine).get_columns(IntelligenceItem.__tablename__)
             }
         except Exception as exc:
-            logger.warning("资讯池 scope_value 回填检查失败，已跳过: %s", exc)
+            logger.warning("News pool scope_value backfill check failed, skipped: %s", exc)
             return
         if "scope_value" not in existing:
             return
@@ -1777,7 +1777,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                     (INTELLIGENCE_ITEM_NULL_SCOPE_VALUE,),
                 )
         except Exception as exc:
-            logger.warning("资讯池 scope_value 回填失败，已跳过: %s", exc)
+            logger.warning("News pool scope_value backfill failed, skipped: %s", exc)
 
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
@@ -1810,9 +1810,9 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         try:
             if engine is not None:
                 engine.dispose()
-                logger.debug("数据库引擎已清理")
+                logger.debug("Database engine disposed")
         except Exception as e:
-            logger.warning(f"清理数据库引擎时出错: {e}")
+            logger.warning(f"Error while disposing database engine: {e}")
 
     def _install_sqlite_pragma_handler(self) -> None:
         """为 SQLite 连接安装竞争保护参数。"""
@@ -1827,7 +1827,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 if self._sqlite_file_db and self._sqlite_wal_enabled:
                     cursor.execute("PRAGMA journal_mode=WAL")
             except Exception as exc:
-                logger.warning("初始化 SQLite PRAGMA 失败: %s", exc)
+                logger.warning("Failed to initialize SQLite PRAGMA: %s", exc)
             finally:
                 cursor.close()
 
@@ -1862,7 +1862,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 ):
                     delay = self._sqlite_write_retry_base_delay * (2 ** attempt)
                     logger.warning(
-                        "SQLite 写入锁冲突，准备重试: %s (%s/%s, %.2fs)",
+                        "SQLite write lock conflict, retrying: %s (%s/%s, %.2fs)",
                         operation_name,
                         attempt + 1,
                         max_retries,
@@ -1920,8 +1920,8 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         """
         if not getattr(self, '_initialized', False) or not hasattr(self, '_SessionLocal'):
             raise RuntimeError(
-                "DatabaseManager 未正确初始化。"
-                "请确保通过 DatabaseManager.get_instance() 获取实例。"
+                "DatabaseManager is not properly initialized. "
+                "Make sure to obtain the instance via DatabaseManager.get_instance()."
             )
         session = self._SessionLocal()
         try:
@@ -2114,7 +2114,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                         session.flush()
                     local_saved_count += 1
                 except IntegrityError:
-                    logger.debug("新闻情报重复（已跳过）: %s %s", code, url_key)
+                    logger.debug("Duplicate news intel (skipped): %s %s", code, url_key)
 
             return local_saved_count
 
@@ -2123,9 +2123,9 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 f"save_news_intel[{code}]",
                 _write,
             )
-            logger.info(f"保存新闻情报成功: {code}, 新增 {saved_count} 条")
+            logger.info(f"Saved news intel for {code}: {saved_count} new records")
         except Exception as e:
-            logger.error(f"保存新闻情报失败: {e}")
+            logger.error(f"Failed to save news intel: {e}")
             raise
 
         return saved_count
@@ -2162,7 +2162,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             )
         except Exception as e:
             logger.debug(
-                "基本面快照写入失败（fail-open）: query_id=%s code=%s err=%s",
+                "Failed to write fundamentals snapshot (fail-open): query_id=%s code=%s err=%s",
                 query_id,
                 code,
                 e,
@@ -2197,7 +2197,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 ).scalar_one_or_none()
             except Exception as e:
                 logger.debug(
-                    "基本面快照读取失败（fail-open）: query_id=%s code=%s err=%s",
+                    "Failed to read fundamentals snapshot (fail-open): query_id=%s code=%s err=%s",
                     query_id,
                     code,
                     e,
@@ -2253,7 +2253,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             )
         except Exception as exc:
             logger.warning(
-                "选股运行历史写入失败（fail-open）: run_id=%s err=%s",
+                "Failed to write stock screening run history (fail-open): run_id=%s err=%s",
                 run_id,
                 exc,
             )
@@ -2479,7 +2479,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 _write,
             )
         except Exception as e:
-            logger.error(f"保存分析历史失败: {e}")
+            logger.error(f"Failed to save analysis history: {e}")
             return 0
 
     def update_analysis_history_diagnostics(
@@ -2554,7 +2554,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             )
         except Exception as e:
             logger.warning(
-                "更新分析历史诊断快照失败（fail-open）: query_id=%s code=%s err=%s",
+                "Failed to update analysis history diagnostics snapshot (fail-open): query_id=%s code=%s err=%s",
                 query_id,
                 code,
                 e,
@@ -2950,7 +2950,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             本次实际新增的记录数（不含更新）
         """
         if df is None or df.empty:
-            logger.warning(f"保存数据为空，跳过 {code}")
+            logger.warning(f"No data to save, skipping {code}")
             return 0
 
         now = datetime.now()
@@ -3073,10 +3073,10 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 f"save_daily_data[{code}]",
                 _write,
             )
-            logger.info(f"保存 {code} 数据成功，新增 {saved_count} 条")
+            logger.info(f"Saved data for {code}: {saved_count} new records")
             return saved_count
         except Exception as e:
-            logger.error(f"保存 {code} 数据失败: {e}")
+            logger.error(f"Failed to save data for {code}: {e}")
             raise
     
     def get_analysis_context(
@@ -3107,7 +3107,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         recent_data = self.get_latest_data(code, days=2)
         
         if not recent_data:
-            logger.warning(f"未找到 {code} 的数据")
+            logger.warning(f"No data found for {code}")
             return None
         
         today_data = recent_data[0]
@@ -3156,15 +3156,15 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         ma20 = data.ma20 or 0
         
         if close > ma5 > ma10 > ma20 > 0:
-            return "多头排列 📈"
+            return "Bullish alignment 📈"
         elif close < ma5 < ma10 < ma20 and ma20 > 0:
-            return "空头排列 📉"
+            return "Bearish alignment 📉"
         elif close > ma5 and ma5 > ma10:
-            return "短期向好 🔼"
+            return "Short-term improving 🔼"
         elif close < ma5 and ma5 < ma10:
-            return "短期走弱 🔽"
+            return "Short-term weakening 🔽"
         else:
-            return "震荡整理 ↔️"
+            return "Consolidating ↔️"
 
     @staticmethod
     def _parse_published_date(value: Optional[str]) -> Optional[datetime]:
@@ -3609,7 +3609,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                     .order_by(ConversationMessage.created_at)
                     .limit(1)
                 ).scalar()
-                title = (first_user_msg or "新对话")[:60]
+                title = (first_user_msg or "New conversation")[:60]
 
                 results.append({
                     "session_id": sid,
@@ -3940,12 +3940,12 @@ if __name__ == "__main__":
     
     db = get_db()
     
-    print("=== 数据库测试 ===")
-    print(f"数据库初始化成功")
+    print("=== Database test ===")
+    print("Database initialized successfully")
     
     # 测试检查今日数据
     has_data = db.has_today_data('600519')
-    print(f"茅台今日是否有数据: {has_data}")
+    print(f"Has data for Moutai today: {has_data}")
     
     # 测试保存数据
     test_df = pd.DataFrame({
@@ -3964,8 +3964,8 @@ if __name__ == "__main__":
     })
     
     saved = db.save_daily_data(test_df, '600519', 'TestSource')
-    print(f"保存测试数据: {saved} 条")
+    print(f"Saved test data: {saved} records")
     
     # 测试获取上下文
     context = db.get_analysis_context('600519')
-    print(f"分析上下文: {context}")
+    print(f"Analysis context: {context}")

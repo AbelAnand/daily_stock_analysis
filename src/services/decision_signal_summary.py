@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from src.report_language import normalize_report_language
 from src.utils.sanitize import sanitize_decision_signal_payload, sanitize_decision_signal_text
 
 
@@ -41,32 +42,55 @@ def summarize_decision_signal(item: Any) -> Optional[Dict[str, Any]]:
     return summary or None
 
 
+_EXCERPT_LABELS: Dict[str, Dict[str, str]] = {
+    "zh": {
+        "heading": "AI 决策信号",
+        "action": "动作",
+        "horizon": "周期",
+        "reason": "理由",
+        "watch_conditions": "观察条件",
+        "risk_summary": "风险",
+        "source_report_id": "报告",
+    },
+    "en": {
+        "heading": "AI decision signal",
+        "action": "Action",
+        "horizon": "Horizon",
+        "reason": "Reason",
+        "watch_conditions": "Watch",
+        "risk_summary": "Risk",
+        "source_report_id": "Report",
+    },
+    "ko": {
+        "heading": "AI 결정 신호",
+        "action": "동작",
+        "horizon": "기간",
+        "reason": "이유",
+        "watch_conditions": "관찰 조건",
+        "risk_summary": "리스크",
+        "source_report_id": "리포트",
+    },
+}
+
+# List/dict field separator: zh keeps the full-width "；"; en/ko use ASCII "; ".
+_EXCERPT_LIST_SEP = {"zh": "；", "en": "; ", "ko": "; "}
+
+
 def format_decision_signal_excerpt(summary: Any, report_language: str = "zh") -> str:
-    """Format a compact public DecisionSignal excerpt for notification text."""
+    """Format a compact public DecisionSignal excerpt for notification text.
+
+    ``report_language`` defaults to ``"zh"`` to preserve existing behavior for
+    callers (e.g. ``src.services.alert_worker``) that do not yet thread the
+    configured report language through; callers should pass the real
+    ``report_language`` explicitly whenever it is available so en/ko reports
+    don't fall back to Chinese.
+    """
 
     if not isinstance(summary, dict) or not summary:
         return ""
-    language = "en" if str(report_language or "").lower().startswith("en") else "zh"
-    labels = {
-        "zh": {
-            "heading": "AI 决策信号",
-            "action": "动作",
-            "horizon": "周期",
-            "reason": "理由",
-            "watch_conditions": "观察条件",
-            "risk_summary": "风险",
-            "source_report_id": "报告",
-        },
-        "en": {
-            "heading": "AI decision signal",
-            "action": "Action",
-            "horizon": "Horizon",
-            "reason": "Reason",
-            "watch_conditions": "Watch",
-            "risk_summary": "Risk",
-            "source_report_id": "Report",
-        },
-    }[language]
+    language = normalize_report_language(report_language, default="zh")
+    labels = _EXCERPT_LABELS[language]
+    list_sep = _EXCERPT_LIST_SEP[language]
 
     parts = []
     action_label = _public_scalar(summary.get("action_label") or summary.get("action"), max_length=32)
@@ -84,7 +108,7 @@ def format_decision_signal_excerpt(summary: Any, report_language: str = "zh") ->
         lines.append(" | ".join(parts))
     for key in ("reason", "watch_conditions", "risk_summary"):
         max_length = None if key == "reason" else 120
-        text = _public_text(summary.get(key), max_length=max_length)
+        text = _public_text(summary.get(key), max_length=max_length, list_sep=list_sep)
         if text:
             lines.append(f"- {labels[key]}: {text}")
     return "\n".join(lines)
@@ -96,13 +120,13 @@ def _public_scalar(value: Any, *, max_length: int) -> str:
     return sanitize_decision_signal_text(value)[:max_length]
 
 
-def _public_text(value: Any, *, max_length: Optional[int]) -> str:
+def _public_text(value: Any, *, max_length: Optional[int], list_sep: str = "；") -> str:
     if value in (None, "", [], {}):
         return ""
     if isinstance(value, (list, tuple)):
-        text = "；".join(str(item).strip() for item in value if str(item or "").strip())
+        text = list_sep.join(str(item).strip() for item in value if str(item or "").strip())
     elif isinstance(value, dict):
-        text = "；".join(
+        text = list_sep.join(
             f"{key}: {item}"
             for key, item in value.items()
             if str(key or "").strip() and str(item or "").strip()

@@ -34,8 +34,17 @@ describe('AlertRuleForm', () => {
     );
   }
 
+  function renderChineseForm() {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+    render(
+      <UiLanguageProvider>
+        <AlertRuleForm onSubmit={onSubmit} />
+      </UiLanguageProvider>,
+    );
+  }
+
   it('submits a price_cross rule payload', async () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('规则名称'), { target: { value: '茅台价格突破' } });
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: '600519' } });
@@ -56,7 +65,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('submits a price_change_percent rule payload', async () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: 'aapl' } });
     fireEvent.change(screen.getByLabelText('规则类型'), { target: { value: 'price_change_percent' } });
@@ -76,7 +85,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('submits a volume_spike rule payload and supports disabled creation', async () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: 'msft' } });
     fireEvent.change(screen.getByLabelText('规则类型'), { target: { value: 'volume_spike' } });
@@ -95,7 +104,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('submits technical indicator rule payloads', async () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: '600519' } });
     fireEvent.change(screen.getByLabelText('规则类型'), { target: { value: 'macd_cross' } });
@@ -120,7 +129,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('rejects invalid technical indicator boundaries before submit', () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: '600519' } });
     fireEvent.change(screen.getByLabelText('规则类型'), { target: { value: 'rsi_threshold' } });
@@ -132,7 +141,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('rejects indicator period combinations that exceed fetchable history', () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: '600519' } });
     fireEvent.change(screen.getByLabelText('规则类型'), { target: { value: 'macd_cross' } });
@@ -146,7 +155,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('rejects empty required technical indicator thresholds before submit', () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: '600519' } });
     fireEvent.change(screen.getByLabelText('规则类型'), { target: { value: 'rsi_threshold' } });
@@ -163,7 +172,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('rejects invalid numeric thresholds before submit', () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: '600519' } });
     fireEvent.change(screen.getByLabelText('价格阈值'), { target: { value: '0' } });
@@ -174,7 +183,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('rejects invalid stock code format before submit', () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: 'aapl-2026' } });
     fireEvent.change(screen.getByLabelText('价格阈值'), { target: { value: '200' } });
@@ -185,7 +194,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('filters alert types and submits a watchlist rule payload', async () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('目标范围'), { target: { value: 'watchlist' } });
     expect(screen.queryByText('组合止损')).not.toBeInTheDocument();
@@ -203,7 +212,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('loads accounts and submits portfolio stop-loss mode', async () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('目标范围'), { target: { value: 'portfolio_account' } });
     await waitFor(() => expect(getAccounts).toHaveBeenCalledWith(false));
@@ -235,7 +244,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('shows JP/KR options for market region in Chinese UI mode', () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('目标范围'), { target: { value: 'market' } });
 
@@ -247,7 +256,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('submits a market light status rule payload', async () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('目标范围'), { target: { value: 'market' } });
     expect(screen.getByRole('option', { name: 'A 股（cn）' })).toBeInTheDocument();
@@ -281,7 +290,7 @@ describe('AlertRuleForm', () => {
   });
 
   it('submits a market light score-drop rule payload', async () => {
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('目标范围'), { target: { value: 'market' } });
     fireEvent.change(screen.getByLabelText('市场区域'), { target: { value: 'us' } });
@@ -301,7 +310,7 @@ describe('AlertRuleForm', () => {
 
   it('keeps all account option when account loading fails', async () => {
     getAccounts.mockRejectedValueOnce(new Error('boom'));
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('目标范围'), { target: { value: 'portfolio_holdings' } });
     expect(await screen.findByRole('alert')).toHaveTextContent('boom');
@@ -310,7 +319,7 @@ describe('AlertRuleForm', () => {
 
   it('keeps form values when submit reports failure', async () => {
     onSubmit.mockResolvedValueOnce(false);
-    render(<AlertRuleForm onSubmit={onSubmit} />);
+    renderChineseForm();
 
     fireEvent.change(screen.getByLabelText('标的代码'), { target: { value: 'aapl' } });
     fireEvent.change(screen.getByLabelText('价格阈值'), { target: { value: '200' } });

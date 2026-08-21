@@ -62,11 +62,11 @@ class ComputedLevelsPromptTestCase(unittest.TestCase):
 
         prompt = analyzer._format_prompt(context, "贵州茅台", news_context=None)
 
-        self.assertIn("系统计算参考位（ATR基准）", prompt)
+        self.assertIn("System-computed reference levels (ATR-based)", prompt)
         self.assertIn("96.7", prompt)
         self.assertIn("106.6", prompt)
-        self.assertIn("为锚定给出狙击点位", prompt)
-        self.assertIn("必须按你最终给出的价位重新计算", prompt)
+        self.assertIn("Anchor the sniper points", prompt)
+        self.assertIn("must be recomputed from the levels you finally give", prompt)
 
     def test_levels_block_absent_when_insufficient_data(self) -> None:
         analyzer = _make_analyzer()
@@ -133,14 +133,14 @@ class TrackRecordPromptTestCase(unittest.TestCase):
 
         prompt = analyzer._format_prompt(context, "贵州茅台", news_context=None)
 
-        self.assertIn("历史战绩", prompt)
-        self.assertIn("整体严格准确率：46.15%", prompt)
-        self.assertIn("Brier 分数：0.2712", prompt)
-        self.assertIn("买入 52.0%（25笔）", prompt)
-        self.assertIn("本股历史严格准确率：60.0%", prompt)
+        self.assertIn("Track record", prompt)
+        self.assertIn("Overall strict accuracy: 46.15%", prompt)
+        self.assertIn("p_up calibration Brier score: 0.2712", prompt)
+        self.assertIn("买入 52.0% (25 calls)", prompt)
+        self.assertIn("Strict accuracy on this stock: 60.0%", prompt)
         self.assertIn("实际命中率为48%", prompt)
-        # annotate-not-veto：明确不因战绩改方向
-        self.assertIn("不要因历史战绩直接改变买卖方向", prompt)
+        # annotate-not-veto: explicitly do not change direction because of track record
+        self.assertIn("do not change the buy/sell direction because of the track record", prompt)
 
     def test_track_record_block_skipped_without_data(self) -> None:
         analyzer = _make_analyzer()
@@ -163,8 +163,8 @@ class EarningsCalendarPromptTestCase(unittest.TestCase):
             earnings_calendar={"next_earnings_date": "2026-09-10", "days_until": 21},
         )
         prompt = analyzer._format_prompt(context, "Apple", news_context=None)
-        self.assertIn("下次财报 | 2026-09-10 (21天后)", prompt)
-        self.assertNotIn("财报临近", prompt)
+        self.assertIn("Next earnings | 2026-09-10 (in 21 days)", prompt)
+        self.assertNotIn("Earnings are imminent", prompt)
 
     def test_earnings_proximity_note_when_within_seven_days(self) -> None:
         analyzer = _make_analyzer()
@@ -174,8 +174,8 @@ class EarningsCalendarPromptTestCase(unittest.TestCase):
             earnings_calendar={"next_earnings_date": "2026-08-24", "days_until": 4},
         )
         prompt = analyzer._format_prompt(context, "Apple", news_context=None)
-        self.assertIn("下次财报 | 2026-08-24 (4天后)", prompt)
-        self.assertIn("财报临近（4天后）", prompt)
+        self.assertIn("Next earnings | 2026-08-24 (in 4 days)", prompt)
+        self.assertIn("Earnings are imminent (in 4 days)", prompt)
 
     def test_no_earnings_row_without_context(self) -> None:
         analyzer = _make_analyzer()
@@ -327,9 +327,9 @@ class PipelineInjectionTestCase(unittest.TestCase):
             result, {"next_earnings_date": "2026-08-25", "days_until": 5}
         )
 
-        self.assertIn("财报事件风险", result.risk_warning)
+        self.assertIn("Earnings event risk", result.risk_warning)
         self.assertIn("原有风险提示", result.risk_warning)
-        self.assertIn("仓位", result.risk_warning)
+        self.assertIn("Position sizing", result.risk_warning)
         self.assertTrue(result.dashboard["earnings_within_horizon"])
         self.assertEqual(result.dashboard["next_earnings_date"], "2026-08-25")
         # annotate-not-veto：模型结论与评分保持不变
@@ -339,7 +339,7 @@ class PipelineInjectionTestCase(unittest.TestCase):
         # 风险警报列表被追加而非覆盖
         alerts = result.dashboard["intelligence"]["risk_alerts"]
         self.assertEqual(alerts[0], "既有风险点")
-        self.assertTrue(any("财报事件风险" in alert for alert in alerts[1:]))
+        self.assertTrue(any("Earnings event risk" in alert for alert in alerts[1:]))
 
     def test_annotate_earnings_risk_skips_watch_calls(self) -> None:
         result = self._buy_result()
@@ -348,7 +348,7 @@ class PipelineInjectionTestCase(unittest.TestCase):
         self.pipeline._annotate_earnings_risk(
             result, {"next_earnings_date": "2026-08-25", "days_until": 5}
         )
-        self.assertNotIn("财报事件风险", result.risk_warning)
+        self.assertNotIn("Earnings event risk", result.risk_warning)
         self.assertNotIn("earnings_within_horizon", result.dashboard)
 
     def test_annotate_earnings_risk_skips_far_earnings(self) -> None:
@@ -356,13 +356,13 @@ class PipelineInjectionTestCase(unittest.TestCase):
         self.pipeline._annotate_earnings_risk(
             result, {"next_earnings_date": "2026-09-30", "days_until": 41}
         )
-        self.assertNotIn("财报事件风险", result.risk_warning)
+        self.assertNotIn("Earnings event risk", result.risk_warning)
         self.assertNotIn("earnings_within_horizon", result.dashboard)
 
     def test_annotate_earnings_risk_handles_missing_context(self) -> None:
         result = self._buy_result()
         self.pipeline._annotate_earnings_risk(result, None)
-        self.assertNotIn("财报事件风险", result.risk_warning)
+        self.assertNotIn("Earnings event risk", result.risk_warning)
 
 
 if __name__ == "__main__":

@@ -12,13 +12,14 @@ import requests
 
 from src.config import Config
 from src.formatters import markdown_to_plain_text
+from src.notification_sender.message_text import get_message_text, resolve_message_language
 
 
 logger = logging.getLogger(__name__)
 
 
 class PushoverSender:
-    
+
     def __init__(self, config: Config):
         """
         初始化 Pushover 配置
@@ -26,6 +27,7 @@ class PushoverSender:
         Args:
             config: 配置对象
         """
+        self._config = config
         self._pushover_config = {
             'user_key': getattr(config, 'pushover_user_key', None),
             'api_token': getattr(config, 'pushover_api_token', None),
@@ -68,19 +70,20 @@ class PushoverSender:
             是否发送成功
         """
         if not self._is_pushover_configured():
-            logger.warning("Pushover 配置不完整，跳过推送")
+            logger.warning("Pushover is not fully configured, skipping push")
             return False
-        
+
         user_key = self._pushover_config['user_key']
         api_token = self._pushover_config['api_token']
-        
+
         # Pushover API 端点
         api_url = "https://api.pushover.net/1/messages.json"
-        
+
         # 处理消息标题
         if title is None:
             date_str = datetime.now().strftime('%Y-%m-%d')
-            title = f"📈 股票分析报告 - {date_str}"
+            lang = resolve_message_language(self._config)
+            title = f"📈 {get_message_text('report_title', lang)} - {date_str}"
         
         # Pushover 消息限制 1024 字符
         max_length = 1024
@@ -139,19 +142,19 @@ class PushoverSender:
             if response.status_code == 200:
                 result = response.json()
                 if result.get('status') == 1:
-                    logger.info("Pushover 消息发送成功")
+                    logger.info("Pushover message sent successfully")
                     return True
                 else:
-                    errors = result.get('errors', ['未知错误'])
-                    logger.error(f"Pushover 返回错误: {errors}")
+                    errors = result.get('errors', ['Unknown error'])
+                    logger.error(f"Pushover returned an error: {errors}")
                     return False
             else:
-                logger.error(f"Pushover 请求失败: HTTP {response.status_code}")
-                logger.debug(f"响应内容: {response.text}")
+                logger.error(f"Pushover request failed: HTTP {response.status_code}")
+                logger.debug(f"Response body: {response.text}")
                 return False
-                
+
         except Exception as e:
-            logger.error(f"发送 Pushover 消息失败: {e}")
+            logger.error(f"Failed to send Pushover message: {e}")
             return False
     
     def _send_pushover_chunked(
@@ -210,7 +213,7 @@ class PushoverSender:
         total_chunks = len(chunks)
         success_count = 0
         
-        logger.info(f"Pushover 分批发送：共 {total_chunks} 批")
+        logger.info(f"Pushover sending in {total_chunks} batches")
         
         for i, chunk in enumerate(chunks):
             # 添加分页标记到标题
@@ -225,9 +228,9 @@ class PushoverSender:
                 timeout_seconds=timeout_seconds,
             ):
                 success_count += 1
-                logger.info(f"Pushover 第 {i+1}/{total_chunks} 批发送成功")
+                logger.info(f"Pushover batch {i+1}/{total_chunks} sent successfully")
             else:
-                logger.error(f"Pushover 第 {i+1}/{total_chunks} 批发送失败")
+                logger.error(f"Pushover batch {i+1}/{total_chunks} failed to send")
             
             # 批次间隔，避免触发频率限制
             if i < total_chunks - 1:

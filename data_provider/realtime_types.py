@@ -244,41 +244,41 @@ class ChipDistribution:
         
         # 获利比例分析
         if self.profit_ratio >= 0.9:
-            status_parts.append("获利盘极高(获利盘>90%)")
+            status_parts.append("Very high profit ratio (>90% in profit)")
         elif self.profit_ratio >= 0.7:
-            status_parts.append("获利盘较高(获利盘70-90%)")
+            status_parts.append("High profit ratio (70-90% in profit)")
         elif self.profit_ratio >= 0.5:
-            status_parts.append("获利盘中等(获利盘50-70%)")
+            status_parts.append("Moderate profit ratio (50-70% in profit)")
         elif self.profit_ratio >= 0.3:
-            status_parts.append("套牢盘中等(套牢盘50-70%)")
+            status_parts.append("Moderate trapped holdings (50-70% underwater)")
         elif self.profit_ratio >= 0.1:
-            status_parts.append("套牢盘较高(套牢盘70-90%)")
+            status_parts.append("High trapped holdings (70-90% underwater)")
         else:
-            status_parts.append("套牢盘极高(套牢盘>90%)")
+            status_parts.append("Very high trapped holdings (>90% underwater)")
         
         # 筹码集中度分析 (90%集中度 < 10% 表示集中)
         if self.concentration_90 < 0.08:
-            status_parts.append("筹码高度集中")
+            status_parts.append("Chips highly concentrated")
         elif self.concentration_90 < 0.15:
-            status_parts.append("筹码较集中")
+            status_parts.append("Chips fairly concentrated")
         elif self.concentration_90 < 0.25:
-            status_parts.append("筹码分散度中等")
+            status_parts.append("Chip dispersion moderate")
         else:
-            status_parts.append("筹码较分散")
+            status_parts.append("Chips fairly dispersed")
         
         # 成本与现价关系
         if current_price > 0 and self.avg_cost > 0:
             cost_diff = (current_price - self.avg_cost) / self.avg_cost * 100
             if cost_diff > 20:
-                status_parts.append(f"现价高于平均成本{cost_diff:.1f}%")
+                status_parts.append(f"Price {cost_diff:.1f}% above average cost")
             elif cost_diff > 5:
-                status_parts.append(f"现价略高于成本{cost_diff:.1f}%")
+                status_parts.append(f"Price slightly above cost by {cost_diff:.1f}%")
             elif cost_diff > -5:
-                status_parts.append("现价接近平均成本")
+                status_parts.append("Price near average cost")
             else:
-                status_parts.append(f"现价低于平均成本{abs(cost_diff):.1f}%")
+                status_parts.append(f"Price {abs(cost_diff):.1f}% below average cost")
         
-        return "，".join(status_parts)
+        return ", ".join(status_parts)
 
 
 class CircuitBreaker:
@@ -349,11 +349,11 @@ class CircuitBreaker:
                     state['state'] = self.HALF_OPEN
                     state['half_open_calls'] = 0
                     state['last_failure_time'] = current_time
-                    logger.info(f"[熔断器] {source} 冷却完成，进入半开状态")
+                    logger.info(f"[CircuitBreaker] {source} cooldown finished; entering half-open state")
                     # Fall through to HALF_OPEN check below
                 else:
                     remaining = self.cooldown_seconds - time_since_failure
-                    logger.debug(f"[熔断器] {source} 处于熔断状态，剩余冷却时间: {remaining:.0f}s")
+                    logger.debug(f"[CircuitBreaker] {source} is open; cooldown remaining: {remaining:.0f}s")
                     return False
 
             if state['state'] == self.HALF_OPEN:
@@ -367,7 +367,7 @@ class CircuitBreaker:
                 if time_since_failure >= self.cooldown_seconds:
                     state['half_open_calls'] = 1
                     state['last_failure_time'] = current_time
-                    logger.info(f"[熔断器] {source} 半开状态探测超时，重新探测")
+                    logger.info(f"[CircuitBreaker] {source} half-open probe timed out; probing again")
                     return True
                 return False
 
@@ -385,7 +385,7 @@ class CircuitBreaker:
                 state['state'] = self.OPEN
                 state['half_open_calls'] = 0
                 state['last_failure_time'] = time.time()
-                logger.info(f"[熔断器] {source} 半开探测结果不确定，重新进入冷却")
+                logger.info(f"[CircuitBreaker] {source} half-open probe result inconclusive; re-entering cooldown")
 
     def record_success(self, source: str) -> None:
         """记录成功请求"""
@@ -394,7 +394,7 @@ class CircuitBreaker:
 
             if state['state'] == self.HALF_OPEN:
                 # 半开状态下成功，完全恢复
-                logger.info(f"[熔断器] {source} 半开状态请求成功，恢复正常")
+                logger.info(f"[CircuitBreaker] {source} half-open request succeeded; back to normal")
 
             # 重置状态
             state['state'] = self.CLOSED
@@ -414,14 +414,14 @@ class CircuitBreaker:
                 # 半开状态下失败，继续熔断
                 state['state'] = self.OPEN
                 state['half_open_calls'] = 0
-                logger.warning(f"[熔断器] {source} 半开状态请求失败，继续熔断 {self.cooldown_seconds}s")
+                logger.warning(f"[CircuitBreaker] {source} half-open request failed; staying open for {self.cooldown_seconds}s")
             elif state['failures'] >= self.failure_threshold:
                 # 达到阈值，进入熔断
                 state['state'] = self.OPEN
-                logger.warning(f"[熔断器] {source} 连续失败 {state['failures']} 次，进入熔断状态 "
-                              f"(冷却 {self.cooldown_seconds}s)")
+                logger.warning(f"[CircuitBreaker] {source} failed {state['failures']} times in a row; opening circuit "
+                              f"(cooldown {self.cooldown_seconds}s)")
                 if error:
-                    logger.warning(f"[熔断器] 最后错误: {error}")
+                    logger.warning(f"[CircuitBreaker] Last error: {error}")
     
     def get_status(self) -> Dict[str, str]:
         """获取所有数据源状态"""

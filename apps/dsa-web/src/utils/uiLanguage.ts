@@ -45,47 +45,28 @@ export function persistUiLanguage(storage: Storage | null, language: UiLanguage)
   }
 }
 
-function getBrowserUiLanguage(navigatorLike?: Pick<Navigator, 'language' | 'languages'> | null): UiLanguage {
-  const languageCandidates = [
-    ...(Array.isArray(navigatorLike?.languages) ? navigatorLike?.languages ?? [] : []),
-    navigatorLike?.language,
-  ].filter((language): language is string => Boolean(language));
+export const DEFAULT_UI_LANGUAGE: UiLanguage = 'en';
 
-  for (const candidate of languageCandidates) {
-    const normalized = candidate.toLowerCase();
-    if (normalized.startsWith('zh')) {
-      return 'zh';
-    }
-    if (normalized.startsWith('en')) {
-      return 'en';
-    }
-  }
-
-  return 'zh';
-}
-
+/**
+ * Resolve the initial UI language.
+ *
+ * Only an explicit stored preference overrides the default; browser locale is
+ * intentionally ignored so the UI always starts in English unless the user
+ * has chosen otherwise via the language toggle.
+ */
 export function resolveInitialUiLanguage({
   storage,
-  navigatorLike,
 }: {
   storage?: Storage | null;
   navigatorLike?: Pick<Navigator, 'language' | 'languages'> | null;
 } = {}): UiLanguage {
-  const stored = getStoredUiLanguage(storage);
-  if (stored) {
-    return stored;
-  }
-
-  return getBrowserUiLanguage(navigatorLike);
+  return getStoredUiLanguage(storage) ?? DEFAULT_UI_LANGUAGE;
 }
 
 export function getRuntimeInitialLanguage(): UiLanguage {
   if (typeof window === 'undefined') {
-    return 'zh';
+    return DEFAULT_UI_LANGUAGE;
   }
 
-  return resolveInitialUiLanguage({
-    storage: getUiLanguageStorage(),
-    navigatorLike: window.navigator,
-  });
+  return resolveInitialUiLanguage({ storage: getUiLanguageStorage() });
 }

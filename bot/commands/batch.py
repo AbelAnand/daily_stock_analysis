@@ -39,11 +39,11 @@ class BatchCommand(BotCommand):
     
     @property
     def description(self) -> str:
-        return "批量分析自选股"
+        return "Analyze all stocks in your watchlist"
     
     @property
     def usage(self) -> str:
-        return "/batch [数量]"
+        return "/batch [count]"
     
     @property
     def admin_only(self) -> bool:
@@ -61,7 +61,7 @@ class BatchCommand(BotCommand):
         
         if not stock_list:
             return BotResponse.error_response(
-                "自选股列表为空，请先配置 STOCK_LIST"
+                "Watchlist is empty. Please configure STOCK_LIST first."
             )
         
         # 解析数量参数
@@ -70,15 +70,15 @@ class BatchCommand(BotCommand):
             try:
                 limit = int(args[0])
                 if limit <= 0:
-                    return BotResponse.error_response("数量必须大于0")
+                    return BotResponse.error_response("Count must be greater than 0")
             except ValueError:
-                return BotResponse.error_response(f"无效的数量: {args[0]}")
+                return BotResponse.error_response(f"Invalid count: {args[0]}")
         
         # 限制分析数量
         if limit:
             stock_list = stock_list[:limit]
         
-        logger.info(f"[BatchCommand] 开始批量分析 {len(stock_list)} 只股票")
+        logger.info(f"[BatchCommand] Starting batch analysis of {len(stock_list)} stocks")
         
         # 在后台线程中执行分析
         thread = threading.Thread(
@@ -89,11 +89,11 @@ class BatchCommand(BotCommand):
         thread.start()
         
         return BotResponse.markdown_response(
-            f"✅ **批量分析任务已启动**\n\n"
-            f"• 分析数量: {len(stock_list)} 只\n"
-            f"• 股票列表: {', '.join(stock_list[:5])}"
+            f"✅ **Batch analysis started**\n\n"
+            f"• Stocks to analyze: {len(stock_list)}\n"
+            f"• Stock list: {', '.join(stock_list[:5])}"
             f"{'...' if len(stock_list) > 5 else ''}\n\n"
-            f"分析完成后将自动推送汇总报告。"
+            f"A summary report will be sent automatically when the analysis completes."
         )
     
     def _run_batch_analysis(self, stock_list: List[str], message: BotMessage) -> None:
@@ -119,8 +119,8 @@ class BatchCommand(BotCommand):
                 send_notification=True
             )
             
-            logger.info(f"[BatchCommand] 批量分析完成，成功 {len(results)} 只")
+            logger.info(f"[BatchCommand] Batch analysis complete, {len(results)} succeeded")
             
         except Exception as e:
-            logger.error(f"[BatchCommand] 批量分析失败: {e}")
+            logger.error(f"[BatchCommand] Batch analysis failed: {e}")
             logger.exception(e)

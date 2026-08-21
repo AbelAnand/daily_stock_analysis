@@ -122,7 +122,7 @@ class TestParseImportFromBytesExcel:
 
     def test_rejects_xls(self):
         data = b"dummy"
-        with pytest.raises(ValueError, match="仅支持 .xlsx"):
+        with pytest.raises(ValueError, match="Only .xlsx is supported"):
             parse_import_from_bytes(data, "a.xls")
 
     def test_excel_error_includes_actionable_hint(self):
@@ -142,12 +142,12 @@ class TestParseImportFromBytesExcel:
 class TestParseImportLimits:
     def test_rejects_file_over_limit(self):
         data = b"x" * (MAX_FILE_BYTES + 1)
-        with pytest.raises(ValueError, match="超过"):
+        with pytest.raises(ValueError, match="exceeds"):
             parse_import_from_bytes(data, "a.csv")
 
     def test_rejects_text_over_limit(self):
         text = "x" * (MAX_TEXT_BYTES + 1)
-        with pytest.raises(ValueError, match="超过"):
+        with pytest.raises(ValueError, match="exceeds"):
             parse_import_from_text(text)
 
     def test_csv_parser_error_raises_helpful_message(self):
@@ -156,8 +156,8 @@ class TestParseImportLimits:
         with pytest.raises(ValueError) as exc_info:
             parse_import_from_bytes(data, "a.csv")
         msg = str(exc_info.value)
-        assert "CSV 解析失败" in msg
-        assert "分隔符" in msg or "引号" in msg
+        assert "CSV parsing failed" in msg
+        assert "delimiter" in msg or "quote" in msg
 
     def test_accepts_gbk_encoded_csv(self):
         # Build CSV with Chinese in GBK encoding

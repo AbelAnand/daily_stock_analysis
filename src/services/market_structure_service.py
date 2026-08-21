@@ -154,7 +154,7 @@ class MarketStructureService:
             risk_tags.append(
                 MarketStructureRiskTag(
                     code="theme_data_partial",
-                    message="市场题材数据不完整，题材强弱仅作降级参考",
+                    message="Market theme data is incomplete; theme strength is only a degraded reference",
                 )
             )
         if related_boards and not primary_theme_has_market_match:
@@ -162,7 +162,7 @@ class MarketStructureService:
             risk_tags.append(
                 MarketStructureRiskTag(
                     code="stock_theme_evidence_partial",
-                    message="个股板块未匹配到市场题材榜单，个股位置按降级证据处理",
+                    message="Stock boards did not match the market theme ranking; stock position is treated as degraded evidence",
                 )
             )
         if not related_boards:
@@ -170,7 +170,7 @@ class MarketStructureService:
             risk_tags.append(
                 MarketStructureRiskTag(
                     code="board_membership_missing",
-                    message="缺少个股所属板块证据，无法判断题材位置",
+                    message="Missing stock board membership evidence; theme position cannot be determined",
                 )
             )
 

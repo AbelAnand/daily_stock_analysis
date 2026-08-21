@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import re
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -1960,6 +1961,28 @@ def test_brief_aggregate_report_without_single_stock_heading_uses_generic_poster
     assert 'class="poster dashboard"' in html
     assert "Summary" in html
     assert "Buy leaders on pullbacks." in html
+
+
+def test_market_fund_metrics_localizes_labels_and_values_for_english():
+    from src.share_image import _market_fund_metrics
+
+    section_markdown = """### Fund Flows
+
+涨跌比接近6.4:1，成交额较前一交易日放量逾2000亿元；科创方向冲高回落，资金分歧明显。
+"""
+    metrics = _market_fund_metrics(section_markdown, "en")
+
+    labels = [label for label, _value, _tone in metrics]
+    values = [value for _label, value, _tone in metrics]
+    assert "Adv/Decl Ratio" in labels
+    assert "Volume Increase" in labels
+    assert "Fund Style" in labels
+    assert "涨跌比" not in labels
+    assert "增量成交" not in labels
+    assert "资金风格" not in labels
+    assert any("¥" in value and "M" in value for value in values)
+    assert "Tech-led, diverging at highs" in values
+    assert not any(re.search(r"[一-鿿]", value) for value in values)
 
 
 def test_desktop_backend_build_scripts_bundle_share_image_assets():

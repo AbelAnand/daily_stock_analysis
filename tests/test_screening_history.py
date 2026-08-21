@@ -230,7 +230,7 @@ class ScreeningHistoryTestCase(unittest.TestCase):
         event_search.assert_called_once_with("600519", "贵州茅台", max_results=3)
         self.assertEqual(enriched["dsa_events"][0]["title"], "贵州茅台发布年度报告")
         self.assertEqual(enriched["dsa_context"]["events"], events)
-        self.assertIn("DSA事件", enriched["dsa_analysis_summary"])
+        self.assertIn("DSA events", enriched["dsa_analysis_summary"])
 
 
 if __name__ == "__main__":

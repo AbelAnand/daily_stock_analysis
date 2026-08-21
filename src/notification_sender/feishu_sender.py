@@ -29,6 +29,7 @@ from src.formatters import (
     format_feishu_markdown,
     strip_hidden_markdown_metadata,
 )
+from src.notification_sender.message_text import get_message_text, resolve_message_language
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ class FeishuSender:
         ).strip().lower()
         if self._feishu_receive_id_type not in ("chat_id", "open_id"):
             logger.warning(
-                "无效的 FEISHU_RECEIVE_ID_TYPE=%s，回退为 chat_id",
+                "Invalid FEISHU_RECEIVE_ID_TYPE=%s, falling back to chat_id",
                 self._feishu_receive_id_type,
             )
             self._feishu_receive_id_type = "chat_id"
@@ -121,25 +122,28 @@ class FeishuSender:
         ).strip().lower()
         if raw_domain not in ("feishu", "lark"):
             logger.warning(
-                "无效的 FEISHU_DOMAIN=%s，回退为 feishu", raw_domain
+                "Invalid FEISHU_DOMAIN=%s, falling back to feishu", raw_domain
             )
             raw_domain = "feishu"
         self._feishu_domain = FEISHU_DOMAIN if raw_domain == "feishu" else LARK_DOMAIN
 
         self._app_client: Any = _NO_CLIENT
         self._app_client_lock = threading.Lock()
+        self._language = resolve_message_language(config)
 
     # ------------------------------------------------------------------
     # Shared helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _build_card_body(content: str) -> dict:
+    def _build_card_body(self, content: str) -> dict:
         """Build a Feishu interactive-card body (without the ``msg_type`` wrapper)."""
         return {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": "股票智能分析报告"},
+                "title": {
+                    "tag": "plain_text",
+                    "content": get_message_text("report_title_full", self._language),
+                },
             },
             "elements": [
                 {
@@ -190,7 +194,7 @@ class FeishuSender:
                 return self._app_client
             if not FEISHU_SDK_AVAILABLE:
                 logger.warning(
-                    "飞书 App Bot 需要 lark-oapi 库；标准安装请运行: pip install -r requirements.txt"
+                    "Feishu App Bot requires the lark-oapi library; standard install: pip install -r requirements.txt"
                 )
                 self._app_client = None
                 return None
@@ -200,7 +204,7 @@ class FeishuSender:
                     missing.append("FEISHU_APP_ID")
                 if not self._feishu_app_secret:
                     missing.append("FEISHU_APP_SECRET")
-                logger.warning("飞书 App Bot 凭据不全，缺少: %s", ", ".join(missing))
+                logger.warning("Feishu App Bot credentials incomplete, missing: %s", ", ".join(missing))
                 self._app_client = None
                 return None
             try:
@@ -212,9 +216,9 @@ class FeishuSender:
                     .log_level(_lark.LogLevel.WARNING)
                     .build()
                 )
-                logger.info("飞书 App Bot 客户端初始化成功 (domain=%s)", self._feishu_domain)
+                logger.info("Feishu App Bot client initialized successfully (domain=%s)", self._feishu_domain)
             except Exception as e:
-                logger.error("飞书 App Bot 客户端初始化失败: %s", e)
+                logger.error("Feishu App Bot client initialization failed: %s", e)
                 self._app_client = None
             return self._app_client
 
@@ -225,7 +229,7 @@ class FeishuSender:
     def _send_via_app_bot(self, content: str) -> bool:
         """Send message through the Feishu App Bot, chunking if necessary."""
         if not self._feishu_chat_id:
-            logger.warning("FEISHU_CHAT_ID 未配置，跳过 App Bot 推送")
+            logger.warning("FEISHU_CHAT_ID not configured, skipping App Bot push")
             return False
 
         client = self._ensure_app_client()
@@ -237,7 +241,7 @@ class FeishuSender:
 
         if content_bytes > self._feishu_max_bytes:
             logger.info(
-                "App Bot 消息超长 (%d 字节)，将分批发送", content_bytes
+                "App Bot message too long (%d bytes), sending in batches", content_bytes
             )
             return self._app_send_chunked(client, formatted)
 
@@ -250,14 +254,14 @@ class FeishuSender:
                 content, self._feishu_max_bytes, add_page_marker=True
             )
         except (ValueError, TypeError, Exception) as e:
-            logger.error("App Bot 分片失败: %s", e)
+            logger.error("App Bot chunking failed: %s", e)
             return False
 
         success = True
         for i, chunk in enumerate(chunks):
             ok = self._app_send_once(client, chunk)
             if not ok:
-                logger.error("App Bot 第 %d/%d 批发送失败", i + 1, len(chunks))
+                logger.error("App Bot batch %d/%d send failed", i + 1, len(chunks))
                 success = False
             if i < len(chunks) - 1:
                 time.sleep(1)
@@ -305,7 +309,7 @@ class FeishuSender:
                 .build()
             )
         except Exception as e:
-            logger.error("App Bot 请求构建失败: %s: %s", type(e).__name__, e)
+            logger.error("App Bot request construction failed: %s: %s", type(e).__name__, e)
             return False
 
         last_status: Optional[str] = None
@@ -315,7 +319,7 @@ class FeishuSender:
                 resp = client.im.v1.message.create(req)
             except Exception as e:
                 logger.warning(
-                    "App Bot 发送异常 (attempt=%d/%d): %s: %s",
+                    "App Bot send exception (attempt=%d/%d): %s: %s",
                     attempt + 1, _APP_SEND_RETRIES, type(e).__name__, e,
                 )
                 if attempt < _APP_SEND_RETRIES - 1:
@@ -327,7 +331,7 @@ class FeishuSender:
                 continue
 
             if resp.success():
-                logger.info("App Bot 消息发送成功 (type=%s)", msg_type)
+                logger.info("App Bot message sent successfully (type=%s)", msg_type)
                 return True
 
             try:
@@ -339,7 +343,7 @@ class FeishuSender:
             )
             last_status = status
             logger.warning(
-                "App Bot 发送失败 (attempt=%d/%d): %s",
+                "App Bot send failed (attempt=%d/%d): %s",
                 attempt + 1, _APP_SEND_RETRIES, status,
             )
 
@@ -351,7 +355,7 @@ class FeishuSender:
                 )
 
         if last_status:
-            logger.error("App Bot 发送最终失败: %s", last_status)
+            logger.error("App Bot send ultimately failed: %s", last_status)
         return False
 
     # ------------------------------------------------------------------
@@ -371,7 +375,7 @@ class FeishuSender:
             Whether the send succeeded.
         """
         if content is None:
-            logger.error("send_to_feishu: content 不能为 None")
+            logger.error("send_to_feishu: content must not be None")
             return False
         sanitized_content = strip_hidden_markdown_metadata(content).strip()
         if self._feishu_url:
@@ -397,7 +401,7 @@ class FeishuSender:
         """
         path = Path(file_path)
         if not path.is_file():
-            logger.error("send_feishu_file: 文件不存在: %s", file_path)
+            logger.error("send_feishu_file: file does not exist: %s", file_path)
             return False
 
         upload_path, display_name = self._prepare_sanitized_file(path)
@@ -413,7 +417,7 @@ class FeishuSender:
                 try:
                     upload_path.unlink()
                 except OSError:
-                    logger.warning("清理飞书临时文件失败: %s", upload_path)
+                    logger.warning("Failed to clean up Feishu temp file: %s", upload_path)
 
     @staticmethod
     def _prepare_sanitized_file(path: Path) -> Tuple[Path, str]:
@@ -450,7 +454,7 @@ class FeishuSender:
             return False
 
         if not self._feishu_chat_id:
-            logger.warning("FEISHU_CHAT_ID 未配置，跳过 App Bot 文件推送")
+            logger.warning("FEISHU_CHAT_ID not configured, skipping App Bot file push")
             return False
 
         client = self._ensure_app_client()
@@ -486,7 +490,7 @@ class FeishuSender:
                 )
                 resp = client.im.v1.file.create(req)
         except Exception as e:
-            logger.error("App Bot 文件上传异常: %s: %s", type(e).__name__, e)
+            logger.error("App Bot file upload exception: %s: %s", type(e).__name__, e)
             return False
 
         if not resp.success():
@@ -495,39 +499,49 @@ class FeishuSender:
             except (AttributeError, Exception):
                 log_id = "N/A"
             logger.error(
-                "App Bot 文件上传失败: code=%s, msg=%s, log_id=%s",
+                "App Bot file upload failed: code=%s, msg=%s, log_id=%s",
                 resp.code, resp.msg, log_id,
             )
             return False
 
         file_key = resp.data.file_key if resp.data else None
         if not file_key:
-            logger.error("App Bot 文件上传成功但未返回 file_key")
+            logger.error("App Bot file upload succeeded but no file_key returned")
             return False
 
-        logger.info("App Bot 文件上传成功: file_key=%s, file_name=%s", file_key, file_name)
+        logger.info("App Bot file upload succeeded: file_key=%s, file_name=%s", file_key, file_name)
 
         # Send a file message with the uploaded file_key.
         content_json = json.dumps({"file_key": file_key})
         return self._app_send_raw(client, "file", content_json)
 
-    @staticmethod
-    def _guess_mime_for_webhook(path: Path) -> str:
+    def _guess_mime_for_webhook(self, path: Path) -> str:
         """Determine a human-readable label for webhook fallback."""
         suffix = path.suffix.lower()
-        labels = {".md": "Markdown", ".txt": "文本", ".pdf": "PDF", ".csv": "CSV"}
-        return labels.get(suffix, suffix.lstrip(".").upper() or "文件")
+        labels = {
+            ".md": "Markdown",
+            ".txt": get_message_text("file_label_text", self._language),
+            ".pdf": "PDF",
+            ".csv": "CSV",
+        }
+        return labels.get(
+            suffix,
+            suffix.lstrip(".").upper() or get_message_text("file_label_generic", self._language),
+        )
 
     def _send_file_via_webhook(self, path: Path, *, display_name: Optional[str] = None) -> bool:
         """Send file *content* as a Feishu message (webhook fallback)."""
         try:
             text = path.read_text("utf-8")
         except (OSError, UnicodeDecodeError) as e:
-            logger.error("读取文件内容失败 (webhook fallback): %s: %s", type(e).__name__, e)
+            logger.error("Failed to read file content (webhook fallback): %s: %s", type(e).__name__, e)
             return False
 
         file_label = self._guess_mime_for_webhook(path)
-        header = f"**📄 {file_label} 文件内容: {display_name or path.name}**\n\n"
+        header_text = get_message_text(
+            "file_content_prefix", self._language, label=file_label, name=display_name or path.name
+        )
+        header = f"**📄 {header_text}**\n\n"
         content = header + strip_hidden_markdown_metadata(text).strip()
         # Delegate to the existing webhook send path.
         return self._send_via_webhook(content)
@@ -545,7 +559,7 @@ class FeishuSender:
         effective_max_bytes = max_bytes - keyword_overhead
 
         if effective_max_bytes <= 0:
-            logger.error("飞书关键词过长，超过单条消息允许的最大字节数，无法发送")
+            logger.error("Feishu keyword too long, exceeds the max bytes allowed per message, cannot send")
             return False
 
         content_bytes = len(formatted_content.encode("utf-8")) + keyword_overhead
@@ -553,39 +567,40 @@ class FeishuSender:
             min_chunk_bytes = MIN_MAX_BYTES + PAGE_MARKER_SAFE_BYTES
             if effective_max_bytes < min_chunk_bytes:
                 logger.error(
-                    "飞书关键词过长，剩余分片预算(%s字节)不足以安全分页发送，至少需要 %s 字节",
+                    "Feishu keyword too long, remaining chunk budget (%s bytes) is insufficient "
+                    "to safely paginate; at least %s bytes required",
                     effective_max_bytes,
                     min_chunk_bytes,
                 )
                 return False
-            logger.info("飞书消息内容超长(%d字节/%d字符)，将分批发送", content_bytes, len(content))
+            logger.info("Feishu message content too long (%d bytes/%d chars), sending in batches", content_bytes, len(content))
             return self._send_feishu_chunked(formatted_content, effective_max_bytes)
 
         try:
             return self._send_feishu_message(formatted_content, timeout_seconds=timeout_seconds)
         except Exception as e:
-            logger.error("发送飞书消息失败: %s", e)
+            logger.error("Failed to send Feishu message: %s", e)
             return False
 
     def _send_feishu_chunked(self, content: str, max_bytes: int) -> bool:
         try:
             chunks = chunk_content_by_max_bytes(content, max_bytes, add_page_marker=True)
         except ValueError as e:
-            logger.error("飞书消息分片失败，单片预算不足以安全分页（关键词过长或 max_bytes 过小）: %s", e)
+            logger.error("Feishu message chunking failed, per-chunk budget insufficient to safely paginate (keyword too long or max_bytes too small): %s", e)
             return False
 
         total_chunks = len(chunks)
         success_count = 0
-        logger.info("飞书分批发送：共 %d 批", total_chunks)
+        logger.info("Feishu batch send: %d batches total", total_chunks)
         for i, chunk in enumerate(chunks):
             try:
                 if self._send_feishu_message(chunk):
                     success_count += 1
-                    logger.info("飞书第 %d/%d 批发送成功", i + 1, total_chunks)
+                    logger.info("Feishu batch %d/%d sent successfully", i + 1, total_chunks)
                 else:
-                    logger.error("飞书第 %d/%d 批发送失败", i + 1, total_chunks)
+                    logger.error("Feishu batch %d/%d send failed", i + 1, total_chunks)
             except Exception as e:
-                logger.error("飞书第 %d/%d 批发送异常: %s", i + 1, total_chunks, e)
+                logger.error("Feishu batch %d/%d send exception: %s", i + 1, total_chunks, e)
             if i < total_chunks - 1:
                 time.sleep(1)
         return success_count == total_chunks
@@ -608,28 +623,28 @@ class FeishuSender:
             except (requests.exceptions.ConnectionError,
                      requests.exceptions.Timeout,
                      requests.exceptions.RequestException) as e:
-                logger.error("飞书 Webhook 网络请求异常: %s", e)
+                logger.error("Feishu webhook network request exception: %s", e)
                 return False
             if response.status_code == 200:
                 try:
                     result = response.json()
                 except (ValueError, AttributeError):
-                    logger.error("飞书 Webhook 返回非 JSON 响应: %s", response.text[:200])
+                    logger.error("Feishu webhook returned a non-JSON response: %s", response.text[:200])
                     return False
                 if not isinstance(result, dict):
-                    logger.error("飞书 Webhook 返回非预期格式: %s", type(result).__name__)
+                    logger.error("Feishu webhook returned an unexpected format: %s", type(result).__name__)
                     return False
                 code = result.get("code") if "code" in result else result.get("StatusCode")
                 if code == 0:
-                    logger.info("飞书 Webhook 消息发送成功")
+                    logger.info("Feishu webhook message sent successfully")
                     return True
                 logger.error(
-                    "飞书 Webhook 返回错误 [code=%s]: %s",
+                    "Feishu webhook returned an error [code=%s]: %s",
                     code,
-                    result.get("msg") or result.get("StatusMessage", "未知错误"),
+                    result.get("msg") or result.get("StatusMessage", "Unknown error"),
                 )
                 return False
-            logger.error("飞书 Webhook 请求失败: HTTP %d", response.status_code)
+            logger.error("Feishu webhook request failed: HTTP %d", response.status_code)
             return False
 
         card_payload = {"msg_type": "interactive", "card": self._build_card_body(prepared_content)}

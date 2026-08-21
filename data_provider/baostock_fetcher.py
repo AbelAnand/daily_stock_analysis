@@ -112,9 +112,9 @@ class BaostockFetcher(BaseFetcher):
             login_result = bs.login()
             
             if login_result.error_code != '0':
-                raise DataFetchError(f"Baostock 登录失败: {login_result.error_msg}")
+                raise DataFetchError(f"Baostock login failed: {login_result.error_msg}")
             
-            logger.debug("Baostock 登录成功")
+            logger.debug("Baostock login succeeded")
             
             yield bs
             
@@ -123,11 +123,11 @@ class BaostockFetcher(BaseFetcher):
             try:
                 logout_result = bs.logout()
                 if logout_result.error_code == '0':
-                    logger.debug("Baostock 登出成功")
+                    logger.debug("Baostock logout succeeded")
                 else:
-                    logger.warning(f"Baostock 登出异常: {logout_result.error_msg}")
+                    logger.warning(f"Baostock logout error: {logout_result.error_msg}")
             except Exception as e:
-                logger.warning(f"Baostock 登出时发生错误: {e}")
+                logger.warning(f"Error during Baostock logout: {e}")
     
     def _convert_stock_code(self, stock_code: str) -> str:
         """
@@ -148,7 +148,7 @@ class BaostockFetcher(BaseFetcher):
 
         # HK stocks are not supported by Baostock
         if _is_hk_market(raw_code):
-            raise DataFetchError(f"BaostockFetcher 不支持港股 {raw_code}，请使用 AkshareFetcher")
+            raise DataFetchError(f"BaostockFetcher does not support HK stock {raw_code}; use AkshareFetcher")
 
         # 保留既有小写 baostock 格式输入的内部容错，但用户配置仍推荐 6 位裸代码。
         if raw_code.startswith(('sh.', 'sz.')):
@@ -178,7 +178,7 @@ class BaostockFetcher(BaseFetcher):
         elif code.startswith(('000', '001', '002', '003', '300', '301')):
             return f"sz.{code}"
         else:
-            logger.warning(f"无法确定股票 {code} 的市场，默认使用深市")
+            logger.warning(f"Cannot determine market for {code}; defaulting to Shenzhen")
             return f"sz.{code}"
     
     @retry(
@@ -202,22 +202,22 @@ class BaostockFetcher(BaseFetcher):
         """
         # 美股不支持，抛出异常让 DataFetcherManager 切换到其他数据源
         if _is_us_code(stock_code):
-            raise DataFetchError(f"BaostockFetcher 不支持美股 {stock_code}，请使用 AkshareFetcher 或 YfinanceFetcher")
+            raise DataFetchError(f"BaostockFetcher does not support US stock {stock_code}; use AkshareFetcher or YfinanceFetcher")
 
         # 港股不支持，抛出异常让 DataFetcherManager 切换到其他数据源
         if _is_hk_market(stock_code):
-            raise DataFetchError(f"BaostockFetcher 不支持港股 {stock_code}，请使用 AkshareFetcher")
+            raise DataFetchError(f"BaostockFetcher does not support HK stock {stock_code}; use AkshareFetcher")
 
         # 北交所不支持，抛出异常让 DataFetcherManager 切换到其他数据源
         if is_bse_code(stock_code):
             raise DataFetchError(
-                f"BaostockFetcher 不支持北交所 {stock_code}，将自动切换其他数据源"
+                f"BaostockFetcher does not support BSE stock {stock_code}; switching to another data source"
             )
         
         # 转换代码格式
         bs_code = self._convert_stock_code(stock_code)
         
-        logger.debug(f"调用 Baostock query_history_k_data_plus({bs_code}, {start_date}, {end_date})")
+        logger.debug(f"Calling Baostock query_history_k_data_plus({bs_code}, {start_date}, {end_date})")
         
         with self._baostock_session() as bs:
             try:
@@ -233,7 +233,7 @@ class BaostockFetcher(BaseFetcher):
                 )
                 
                 if rs.error_code != '0':
-                    raise DataFetchError(f"Baostock 查询失败: {rs.error_msg}")
+                    raise DataFetchError(f"Baostock query failed: {rs.error_msg}")
                 
                 # 转换为 DataFrame
                 data_list = []
@@ -241,7 +241,7 @@ class BaostockFetcher(BaseFetcher):
                     data_list.append(rs.get_row_data())
                 
                 if not data_list:
-                    raise DataFetchError(f"Baostock 未查询到 {stock_code} 的数据")
+                    raise DataFetchError(f"Baostock returned no data for {stock_code}")
                 
                 df = pd.DataFrame(data_list, columns=rs.fields)
                 
@@ -250,7 +250,7 @@ class BaostockFetcher(BaseFetcher):
             except Exception as e:
                 if isinstance(e, DataFetchError):
                     raise
-                raise DataFetchError(f"Baostock 获取数据失败: {e}") from e
+                raise DataFetchError(f"Baostock data fetch failed: {e}") from e
     
     def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
         """
@@ -326,11 +326,11 @@ class BaostockFetcher(BaseFetcher):
                         if name_idx is not None and len(data_list[0]) > name_idx:
                             name = data_list[0][name_idx]
                             self._stock_name_cache[stock_code] = name
-                            logger.debug(f"Baostock 获取股票名称成功: {stock_code} -> {name}")
+                            logger.debug(f"Baostock fetched stock name: {stock_code} -> {name}")
                             return name
                 
         except Exception as e:
-            logger.warning(f"Baostock 获取股票名称失败 {stock_code}: {e}")
+            logger.warning(f"Baostock failed to fetch stock name for {stock_code}: {e}")
         
         return None
     
@@ -366,11 +366,11 @@ class BaostockFetcher(BaseFetcher):
                         for _, row in df.iterrows():
                             self._stock_name_cache[row['code']] = row['name']
                         
-                        logger.info(f"Baostock 获取股票列表成功: {len(df)} 条")
+                        logger.info(f"Baostock fetched stock list: {len(df)} rows")
                         return df[['code', 'name']]
                 
         except Exception as e:
-            logger.warning(f"Baostock 获取股票列表失败: {e}")
+            logger.warning(f"Baostock failed to fetch stock list: {e}")
         
         return None
 
@@ -384,12 +384,12 @@ if __name__ == "__main__":
     try:
         # 测试历史数据
         df = fetcher.get_daily_data('600519')  # 茅台
-        print(f"获取成功，共 {len(df)} 条数据")
+        print(f"Fetched {len(df)} rows")
         print(df.tail())
         
         # 测试股票名称
         name = fetcher.get_stock_name('600519')
-        print(f"股票名称: {name}")
+        print(f"Stock name: {name}")
         
     except Exception as e:
-        print(f"获取失败: {e}")
+        print(f"Fetch failed: {e}")

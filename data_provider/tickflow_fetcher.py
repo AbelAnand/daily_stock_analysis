@@ -44,12 +44,12 @@ from .realtime_types import RealtimeSource, UnifiedRealtimeQuote, safe_int
 logger = logging.getLogger(__name__)
 
 _CN_MAIN_INDEX_QUOTES = (
-    ("000001.SH", "000001", "\u4e0a\u8bc1\u6307\u6570"),
-    ("399001.SZ", "399001", "\u6df1\u8bc1\u6210\u6307"),
-    ("399006.SZ", "399006", "\u521b\u4e1a\u677f\u6307"),
-    ("000688.SH", "000688", "\u79d1\u521b50"),
-    ("000016.SH", "000016", "\u4e0a\u8bc150"),
-    ("000300.SH", "000300", "\u6caa\u6df1300"),
+    ("000001.SH", "000001", "SSE Composite"),
+    ("399001.SZ", "399001", "SZSE Component"),
+    ("399006.SZ", "399006", "ChiNext"),
+    ("000688.SH", "000688", "STAR 50"),
+    ("000016.SH", "000016", "SSE 50"),
+    ("000300.SH", "000300", "CSI 300"),
 )
 _CN_UNIVERSE_ID = "CN_Equity_A"
 _MAX_SYMBOLS_PER_QUOTE_REQUEST = 5

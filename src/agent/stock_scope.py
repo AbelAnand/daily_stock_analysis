@@ -25,18 +25,35 @@ SWITCH_CLEANUP_KEYS = {
     "market_phase_context",
 }
 
-_STRONG_COMPARE_PATTERN = re.compile(r"比较|对比|vs\b|和[^，。,.!?！？]{0,40}比", re.IGNORECASE)
-_WEAK_COMPARE_HINT_PATTERN = re.compile(r"差异(?!化)|区别|不同|相比|对照|比一比")
-_CHOICE_COMPARE_PATTERN = re.compile(r"哪个|哪只|哪一个|谁更|更值得|更适合|怎么选|选哪|二选一")
-_LINKED_COMPARE_PATTERN = re.compile(
-    r"(?:和|与|跟|同)(?P<body>[^，。,.!?！？]{0,40})(?:差异(?!化)|区别|不同|相比|对照|比一比)"
+_STRONG_COMPARE_PATTERN = re.compile(
+    r"比较|对比|vs\b|和[^，。,.!?！？]{0,40}比|\bcompar(?:e|es|ed|ing|ison)\b|\bversus\b",
+    re.IGNORECASE,
 )
-_SWITCH_PATTERN = re.compile(r"换成|改看|分析|看看|研究|诊断")
+_WEAK_COMPARE_HINT_PATTERN = re.compile(
+    r"差异(?!化)|区别|不同|相比|对照|比一比|\bdifferences?\b|\bdiffers?\b|\bdifferent\b|\bwhich one\b|\bwhich is better\b",
+    re.IGNORECASE,
+)
+_CHOICE_COMPARE_PATTERN = re.compile(
+    r"哪个|哪只|哪一个|谁更|更值得|更适合|怎么选|选哪|二选一"
+    r"|\bwhich one\b|\bwhich (?:is|would be) better\b|\bbetter (?:choice|pick|bet)\b|\bchoose between\b",
+    re.IGNORECASE,
+)
+_LINKED_COMPARE_PATTERN = re.compile(
+    r"(?:和|与|跟|同|\band\b|\bwith\b|\bagainst\b)(?P<body>[^，。,.!?！？]{0,40})"
+    r"(?:差异(?!化)|区别|不同|相比|对照|比一比|\bdifferences?\b|\bdiffers?\b|\bdifferent\b)",
+    re.IGNORECASE,
+)
+_SWITCH_PATTERN = re.compile(
+    r"换成|改看|分析|看看|研究|诊断|\bswitch to\b|\banaly[sz]e\b|\blook at\b|\bcheck\b|\bresearch\b|\bdiagnose\b",
+    re.IGNORECASE,
+)
 _LOWERCASE_TICKER_PATTERN = re.compile(r"(?<![a-zA-Z.])([a-z]{2,5}(?:\.[a-z]{1,2})?)(?![a-zA-Z0-9])")
 _EXCHANGE_TOKEN_CANDIDATES = {"SH", "SZ", "BJ", "HK", "SS"}
 _CONTEXTUAL_INDICATOR_TOKENS = {"MA"}
 _INDICATOR_CONTEXT_PATTERN = re.compile(
-    r"指标|均线|移动平均|排列|多头|空头|金叉|死叉|支撑|压力|MA\d|SMA|EMA",
+    r"指标|均线|移动平均|排列|多头|空头|金叉|死叉|支撑|压力|MA\d|SMA|EMA"
+    r"|\bindicators?\b|\bmoving averages?\b|\balignment\b|\bbullish\b|\bbearish\b"
+    r"|\bgolden cross\b|\bdeath cross\b|\bsupport\b|\bresistance\b",
     re.IGNORECASE,
 )
 
@@ -151,7 +168,7 @@ def _is_compare_message(message: str, candidates: List[str], current_code: str) 
         return False
 
     for match in _LINKED_COMPARE_PATTERN.finditer(message):
-        body_candidates = set(extract_stock_codes(f"比较 {match.group('body')}"))
+        body_candidates = set(extract_stock_codes(f"compare {match.group('body')}"))
         if body_candidates & new_candidates:
             return True
     return False

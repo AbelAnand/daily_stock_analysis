@@ -334,7 +334,7 @@ class GenerationBackendStatusService:
         return {
             "success": True,
             "mode": request.mode,
-            "message": "生成后端冒烟测试通过",
+            "message": "Generation backend smoke test passed",
             "status": status,
         }
 

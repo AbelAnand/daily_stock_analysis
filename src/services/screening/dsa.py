@@ -11,26 +11,33 @@ from urllib.parse import urlparse
 
 import requests
 
+from src.report_language import localize_operation_advice, localize_trend_prediction
 from src.services.screening.models import Pick
 
 logger = logging.getLogger(__name__)
 _DEFAULT_ANALYZE_PATH = "/api/v1/analysis/analyze"
+# Keyed on the canonical English label from src.report_language.localize_operation_advice /
+# localize_trend_prediction, so this scores correctly regardless of whether the upstream
+# analyze() call ran with report_language="zh" or "en".
 _ADVICE_SCORE_MAP = {
-    "强烈买入": 10.0,
-    "买入": 8.0,
-    "增持": 5.0,
-    "持有": 1.5,
-    "中性": 0.0,
-    "观望": -4.0,
-    "减持": -8.0,
-    "卖出": -12.0,
-    "回避": -12.0,
+    "Strong Buy": 10.0,
+    "Buy": 8.0,
+    "Accumulate": 5.0,
+    "Hold": 1.5,
+    "Neutral": 0.0,
+    "Watch": -4.0,
+    "Reduce": -8.0,
+    "Sell": -12.0,
+    "Strong Sell": -12.0,
+    "Avoid": -12.0,
 }
 _TREND_SCORE_MAP = {
-    "看多": 4.0,
-    "震荡": 0.0,
-    "中性": 0.0,
-    "看空": -6.0,
+    "Strong Bullish": 6.0,
+    "Bullish": 4.0,
+    "Sideways": 0.0,
+    "Neutral": 0.0,
+    "Bearish": -6.0,
+    "Strong Bearish": -8.0,
 }
 
 
@@ -253,10 +260,10 @@ def _compute_dsa_overlay_score(pick: Pick) -> float:
     if pick.deep_analysis_sentiment_score is not None:
         score += (pick.deep_analysis_sentiment_score - 50) * 0.12
 
-    advice = pick.deep_analysis_operation_advice.strip()
+    advice = localize_operation_advice(pick.deep_analysis_operation_advice, "en").strip()
     score += _ADVICE_SCORE_MAP.get(advice, 0.0)
 
-    trend = pick.deep_analysis_trend_prediction.strip()
+    trend = localize_trend_prediction(pick.deep_analysis_trend_prediction, "en").strip()
     score += _TREND_SCORE_MAP.get(trend, 0.0)
 
     if pick.deep_analysis_risk_flags:

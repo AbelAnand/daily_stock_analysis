@@ -441,7 +441,7 @@ class SkillManager:
             return ""
 
         # Group by category
-        categories = {"trend": "趋势", "pattern": "形态", "reversal": "反转", "framework": "框架"}
+        categories = {"trend": "Trend", "pattern": "Pattern", "reversal": "Reversal", "framework": "Framework"}
         grouped: Dict[str, List[Skill]] = {}
         for skill in active:
             cat = skill.category or "trend"
@@ -456,17 +456,17 @@ class SkillManager:
             if not skills_in_cat:
                 continue
             cat_label = categories.get(cat_key, cat_key)
-            parts.append(f"#### {cat_label}类技能\n")
+            parts.append(f"#### {cat_label} skills\n")
             for skill in skills_in_cat:
                 rules_ref = ""
                 if skill.core_rules:
-                    rules_ref = f"（关联核心理念：第{'、'.join(str(r) for r in skill.core_rules)}条）"
+                    rules_ref = f"(linked core rules: #{', #'.join(str(r) for r in skill.core_rules)})"
                 support_ref = ""
                 if skill.bundle_dir and skill.entrypoint.endswith("SKILL.md"):
-                    support_ref = "（bundle）"
+                    support_ref = " (bundle)"
                 parts.append(
-                    f"### 技能 {idx}: {skill.display_name} {rules_ref}{support_ref}\n\n"
-                    f"**适用场景**: {skill.description}\n\n"
+                    f"### Skill {idx}: {skill.display_name} {rules_ref}{support_ref}\n\n"
+                    f"**Applicable scenarios**: {skill.description}\n\n"
                     f"{skill.instructions}\n"
                 )
                 idx += 1

@@ -2,8 +2,8 @@
 # Licensed under Apache-2.0 and modified for daily_stock_analysis.
 # 双低选股策略（低 PE + 低 PB）
 name: dual_low
-display_name: 双低选股
-description: 偏稳健的低估值筛选策略，叠加当日活跃度与形态确认，避免长期只命中静态低估值票
+display_name: Dual Low
+description: A conservative low-valuation screen that layers same-day activity and pattern confirmation to avoid repeatedly picking static cheap stocks
 version: "1.2"
 category: value
 tags: [value, defensive, low_valuation, dynamic_signal]
@@ -13,7 +13,7 @@ style:
   execution_style: mean_reversion
   market_regime: [risk_off, range_bound]
   capital_profile: medium_liquidity
-  ui_badge: 价值
+  ui_badge: Value
 
 screening:
   enabled: true
@@ -69,8 +69,8 @@ screening:
     value_quality_bonus: 3.0
     volume_spike_ratio: 4.0
   ranking_hints: |
-    优先考虑：
-    1. 低 PE / 低 PB 仍是基础，但不要只因为便宜反复选择同一批银行、地产、周期股
-    2. 优先选择当日成交活跃度适中、没有追高或破位风险的低估值修复候选
-    3. 行业地位、现金流、分红稳定性和近期催化能解释估值修复逻辑
+    Priorities:
+    1. Low PE / low PB remain the base, but do not keep selecting the same banks, property and cyclical names just because they are cheap
+    2. Prefer low-valuation recovery candidates with moderate same-day turnover activity and no chase or breakdown risk
+    3. Industry position, cash flow, dividend stability and recent catalysts should explain the re-rating logic
   max_output: 5

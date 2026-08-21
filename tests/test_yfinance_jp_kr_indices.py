@@ -62,7 +62,7 @@ class TestJpKrIndexMappings(unittest.TestCase):
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual([item['code'] for item in result], ['N225', 'TOPX'])
-        self.assertEqual([item['name'] for item in result], ['日经225', '东证指数'])
+        self.assertEqual([item['name'] for item in result], ['Nikkei 225', 'TOPIX'])
 
     def test_kr_indices_return_expected_codes_when_data_available(self):
         result = self.fetcher._get_kr_main_indices(_make_mock_yf(_make_mock_hist()))

@@ -105,8 +105,8 @@ def test_yfinance_keeps_tw_suffix_codes_and_indices() -> None:
     tw_indices = fetcher.get_main_indices("tw") or []
 
     assert {item["code"] for item in tw_indices} == {"TWII", "TWOII"}
-    assert ("^TWII", "台湾加权指数", "TWII") in captured
-    assert ("^TWOII", "台湾柜买指数", "TWOII") in captured
+    assert ("^TWII", "TAIEX", "TWII") in captured
+    assert ("^TWOII", "TPEx Index", "TWOII") in captured
 
 
 def test_data_fetcher_manager_routes_tw_daily_only_to_yfinance() -> None:

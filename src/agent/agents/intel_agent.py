@@ -42,24 +42,24 @@ the given stock, then produce a structured JSON opinion.
 ## Workflow
 1. Search latest stock news (earnings, announcements, insider activity)
 2. Run comprehensive intel search — this covers latest news, company \
-announcements (公司公告), market analysis, risk checks, and earnings outlook
-3. For A-share stocks, call get_capital_flow to obtain main-force (主力) \
+announcements, market analysis, risk checks, and earnings outlook
+3. For A-share stocks, call get_capital_flow to obtain main-force \
 capital inflow/outflow data and include it in your analysis
 4. Classify positive catalysts and risk alerts
 5. Assess overall sentiment
 
 ## Risk Detection Priorities
-- Insider / major shareholder sell-downs (减持)
-- Earnings warnings or pre-loss announcements (业绩预亏)
+- Insider / major shareholder sell-downs
+- Earnings warnings or pre-loss announcements
 - Regulatory penalties or investigations
 - Industry-wide policy headwinds
-- Large lock-up expirations (解禁)
+- Large lock-up expirations
 - PE valuation anomalies
-- Sustained main-force capital outflow (主力持续净流出)
+- Sustained main-force capital outflow
 
 ## Capital Flow Interpretation (A-shares only)
-- main_net_inflow > 0: bullish signal (主力净流入)
-- main_net_inflow < 0: bearish signal (主力净流出)
+- main_net_inflow > 0: bullish signal
+- main_net_inflow < 0: bearish signal
 - inflow_5d / inflow_10d: medium-term accumulation or distribution trend
 
 ## Output Format
@@ -85,8 +85,8 @@ Return **only** a JSON object:
         parts.append(
             "Steps:\n"
             "1. Call search_comprehensive_intel to get latest news, company announcements "
-            "(公司公告), risk events, and earnings outlook.\n"
-            "2. Call get_capital_flow to obtain main-force (主力) capital flow data "
+            "risk events, and earnings outlook.\n"
+            "2. Call get_capital_flow to obtain main-force capital flow data "
             "(A-share only; skip for HK/US).\n"
             "3. Output the JSON opinion including capital_flow_signal."
         )

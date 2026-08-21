@@ -489,7 +489,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
 
         self.assertEqual(resp.results[0].title, "贵州茅台 600519 发布回购公告")
         self.assertEqual(resp.results[0].relevance_category, "direct_company_news")
-        self.assertIn("股票代码", "；".join(resp.results[0].relevance_reasons or []))
+        self.assertIn("stock code", "；".join(resp.results[0].relevance_reasons or []))
         p1.search.assert_called_once()
         p2.search.assert_called_once()
 
@@ -1330,7 +1330,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         )
         official_result = resp.results[1]
         self.assertGreater(official_result.relevance_score or 0, 0)
-        self.assertIn("来源接近公告或交易所渠道", official_result.relevance_reasons)
+        self.assertIn("source is close to an announcement or exchange channel", official_result.relevance_reasons)
 
     def test_full_chinese_official_source_label_is_honored_without_url(self) -> None:
         """Full Chinese exchange labels without URL should retain official-source treatment."""
@@ -1366,7 +1366,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         )
         official_result = resp.results[1]
         self.assertGreater(official_result.relevance_score or 0, 0)
-        self.assertIn("来源接近公告或交易所渠道", official_result.relevance_reasons)
+        self.assertIn("source is close to an announcement or exchange channel", official_result.relevance_reasons)
 
     def test_spoofed_official_tokens_do_not_bypass_news_admission(self) -> None:
         """Official exemptions should require trusted parsed hosts or exact source labels."""
@@ -1571,7 +1571,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         )
 
         self.assertNotEqual(result.relevance_category, "direct_company_news")
-        self.assertNotIn("股票代码 700", "；".join(result.relevance_reasons or []))
+        self.assertNotIn("stock code 700", "；".join(result.relevance_reasons or []))
 
     def test_us_stock_ticker_relevance_beats_ambiguous_company_word(self) -> None:
         """US ticker hits should outrank ambiguous common-word company-name noise."""
@@ -1625,7 +1625,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         self.assertNotEqual(scored.relevance_category, "direct_company_news")
         self.assertFalse(
             any(
-                reason.startswith(("标题命中股票代码", "摘要命中股票代码", "链接命中股票代码"))
+                reason.startswith(("title matches stock code", "snippet matches stock code", "link matches stock code"))
                 for reason in (scored.relevance_reasons or [])
             )
         )
@@ -1662,7 +1662,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
                     stock_name="Unmatched Name",
                 )
                 self.assertEqual(scored.relevance_category, "direct_company_news")
-                self.assertIn("股票代码", "；".join(scored.relevance_reasons or []))
+                self.assertIn("stock code", "；".join(scored.relevance_reasons or []))
 
     def test_us_ticker_matches_before_known_dotted_market_suffix(self) -> None:
         """Ticker boundaries should allow explicit market suffixes from news feeds."""
@@ -1695,7 +1695,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
             stock_name="Microsoft",
         )
         self.assertEqual(scored.relevance_category, "direct_company_news")
-        self.assertIn("股票代码", "；".join(scored.relevance_reasons or []))
+        self.assertIn("stock code", "；".join(scored.relevance_reasons or []))
 
     def test_one_letter_us_ticker_does_not_match_common_article_words(self) -> None:
         """Bare one-letter US tickers should not make ordinary words direct hits."""
@@ -1850,13 +1850,13 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
             published_date=datetime.now().date().isoformat(),
             relevance_score=100,
             relevance_category="direct_company_news",
-            relevance_reasons=["标题命中股票代码 600519", "标题命中公司名 贵州茅台"],
+            relevance_reasons=["title matches stock code 600519", "title matches company name 贵州茅台"],
         )
         context = SearchResponse(query="贵州茅台", results=[result], provider="Unit").to_context()
 
-        self.assertIn("关联度", context)
+        self.assertIn("Relevance", context)
         self.assertIn("direct_company_news", context)
-        self.assertIn("标题命中股票代码 600519", context)
+        self.assertIn("title matches stock code 600519", context)
 
     def test_search_stock_news_brave_locale_matches_market_context(self) -> None:
         """Brave locale should follow Chinese-preferred vs US-stock contexts."""
@@ -2266,7 +2266,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
                 )
                 self.assertEqual(scored.relevance_category, "direct_company_news")
                 joined_reasons = "；".join(scored.relevance_reasons or [])
-                self.assertIn("英文别名", joined_reasons)
+                self.assertIn("English alias", joined_reasons)
 
     def test_search_stock_news_query_uses_english_alias_for_chinese_display_name(self) -> None:
         """massif-01 blocker 1: foreign query path must use canonical English alias, not Chinese name."""
@@ -2418,8 +2418,8 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         self.assertLess(scored.relevance_score, 38)
         # Should have exactly one hit on the alias term
         reasons = "；".join(scored.relevance_reasons or [])
-        self.assertIn("摘要命中公司英文别名 Apple", reasons)
-        self.assertNotIn("标题命中公司英文别名", reasons)
+        self.assertIn("snippet matches company English alias Apple", reasons)
+        self.assertNotIn("title matches company English alias", reasons)
 
 if __name__ == "__main__":
     unittest.main()

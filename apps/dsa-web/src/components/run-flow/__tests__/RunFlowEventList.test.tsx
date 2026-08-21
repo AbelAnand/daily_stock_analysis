@@ -1,7 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { UiLanguageProvider } from '../../../contexts/UiLanguageContext';
+import { UI_LANGUAGE_STORAGE_KEY } from '../../../utils/uiLanguage';
 import type { RunFlowEvent } from '../../../types/runFlow';
 import { RunFlowEventList } from '../RunFlowEventList';
+
+function render(ui: ReactElement) {
+  return rtlRender(<UiLanguageProvider>{ui}</UiLanguageProvider>);
+}
 
 const events: RunFlowEvent[] = [
   {
@@ -32,6 +39,10 @@ const events: RunFlowEvent[] = [
 ];
 
 describe('RunFlowEventList', () => {
+  beforeEach(() => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
+  });
+
   it('filters fallback and cancellation events with visible text labels', () => {
     render(<RunFlowEventList events={events} />);
 

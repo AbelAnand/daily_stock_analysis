@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { StrictMode, useState } from 'react';
 import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +10,17 @@ import type { Message, ProgressStep } from '../../stores/agentChatStore';
 import { UI_LANGUAGE_STORAGE_KEY } from '../../utils/uiLanguage';
 import ChatPage from '../ChatPage';
 import { extractStockCodeFromMessage, extractStockCodesFromMessage } from '../../utils/chatStockCode';
+
+// ChatPage always renders inside UiLanguageProvider in the real app; without it,
+// useUiLanguage() falls back to English-only text. Wrap every render/rerender so
+// these tests exercise the same (Chinese, by default here) text the app renders.
+function withLanguage(ui: ReactElement): ReactElement {
+  return <UiLanguageProvider>{ui}</UiLanguageProvider>;
+}
+
+function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(withLanguage(ui), options);
+}
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -189,7 +201,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  window.localStorage.removeItem(UI_LANGUAGE_STORAGE_KEY);
+  window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh');
   mockGetStatus.mockReset();
   mockStoreState.messages = [];
   mockStoreState.selectedSkillIds = null;
@@ -706,7 +718,7 @@ describe('ChatPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '导出会话为 Markdown 文件' }));
 
-    expect(mockDownloadSession).toHaveBeenCalledWith(mockStoreState.messages);
+    expect(mockDownloadSession).toHaveBeenCalledWith(mockStoreState.messages, 'zh');
     expect(mockFormatSessionAsMarkdown).not.toHaveBeenCalled();
   });
 
@@ -1272,7 +1284,7 @@ describe('ChatPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '发送到已配置的通知机器人/邮箱' }));
 
     await waitFor(() => {
-      expect(mockFormatSessionAsMarkdown).toHaveBeenCalledWith(mockStoreState.messages);
+      expect(mockFormatSessionAsMarkdown).toHaveBeenCalledWith(mockStoreState.messages, 'zh');
       expect(mockSendChat).toHaveBeenCalledWith('# exported markdown');
     });
 
@@ -2144,9 +2156,11 @@ describe('ChatPage', () => {
     ];
 
     rerender(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ChatPage />
-      </MemoryRouter>
+      withLanguage(
+        <MemoryRouter initialEntries={['/chat']}>
+          <ChatPage />
+        </MemoryRouter>,
+      ),
     );
 
     const jumpButton = await screen.findByRole('button', { name: '查看最新消息' });

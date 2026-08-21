@@ -115,9 +115,9 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
         prompt = analyzer._get_analysis_system_prompt("zh", stock_code="600519")
 
-        self.assertIn("专注于趋势交易", prompt)
+        self.assertIn("trend-trading-focused", prompt)
         self.assertIn("多头排列优先", prompt)
-        self.assertIn("多头排列：MA5 > MA10 > MA20", prompt)
+        self.assertIn("Bullish alignment: MA5 > MA10 > MA20", prompt)
 
     def test_analysis_prompt_requires_phase_decision_in_main_and_legacy_modes(self) -> None:
         for legacy in (False, True):
@@ -133,8 +133,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
             self.assertIn('"phase_decision"', prompt)
             self.assertIn('"watch_conditions"', prompt)
             self.assertIn('"data_limitations"', prompt)
-            self.assertIn("quote/daily_bars/technical 存在 stale、fallback、missing、fetch_failed、partial 或 estimated", prompt)
-            self.assertIn("`confidence_level` 不得为高", prompt)
+            self.assertIn("quote/daily_bars/technical data is stale, fallback, missing, fetch_failed, partial, or estimated", prompt)
+            self.assertIn("`confidence_level` must not be High", prompt)
 
     def test_analysis_prompt_contains_actionability_guardrails(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -142,14 +142,14 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
         prompt = analyzer._get_analysis_system_prompt("zh", stock_code="002812")
 
-        # EV 决策契约替代了旧的"优先中性/对冲"约束
-        self.assertIn("期望值（EV）决策契约与稳定性约束", prompt)
-        self.assertIn("不得仅因为单日涨跌", prompt)
-        self.assertIn("支撑/压力位", prompt)
+        # The EV decision contract replaces the old "prefer neutral/hedge" constraint
+        self.assertIn("Expected-value (EV) decision contract and stability constraints", prompt)
+        self.assertIn("Do not flip violently between buy and sell merely because of a single day's move", prompt)
+        self.assertIn("support/resistance", prompt)
         self.assertIn("`p_up`", prompt)
         self.assertIn("flip_condition", prompt)
-        self.assertIn("EV = p×R − (1−p)", prompt)
-        self.assertIn("不得为求稳而稀释成观望", prompt)
+        self.assertIn("EV = p*R - (1-p)", prompt)
+        self.assertIn("do not dilute them into watch for the sake of caution", prompt)
 
     def test_analysis_prompt_score_scale_splits_reduce_and_sell_bands(self) -> None:
         for legacy in (False, True):
@@ -163,11 +163,11 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
                 prompt = analyzer._get_analysis_system_prompt("zh", stock_code="600519")
 
-                self.assertIn("### 减仓（20-39分）", prompt)
-                self.assertIn("### 卖出（0-19分）", prompt)
-                self.assertIn("20-39：减仓，`action=reduce`，`decision_type=sell`。", prompt)
-                self.assertIn("0-19：卖出，`action=sell`，`decision_type=sell`。", prompt)
-                self.assertNotIn("### 卖出/减仓（0-39分）", prompt)
+                self.assertIn("### Reduce (20-39):", prompt)
+                self.assertIn("### Sell (0-19):", prompt)
+                self.assertIn("20-39: Reduce, `action=reduce`, `decision_type=sell`.", prompt)
+                self.assertIn("0-19: Sell, `action=sell`, `decision_type=sell`.", prompt)
+                self.assertNotIn("### Sell/Reduce (0-39):", prompt)
 
     def test_prompt_contains_time_constraints(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -194,12 +194,12 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         with patch("src.analyzer.get_config", return_value=fake_cfg):
             prompt = analyzer._format_prompt(context, "贵州茅台", news_context="news")
 
-        self.assertIn("近7日的新闻搜索结果", prompt)
-        self.assertIn("每一条都必须带具体日期（YYYY-MM-DD）", prompt)
-        self.assertIn("超出近7日窗口的新闻一律忽略", prompt)
-        self.assertIn("时间未知、无法确定发布日期的新闻一律忽略", prompt)
-        self.assertIn("财报与分红（价值投资口径）", prompt)
-        self.assertIn("禁止编造", prompt)
+        self.assertIn("news search results for **贵州茅台(600519)** from the past 7 days", prompt)
+        self.assertIn("must carry a specific date (YYYY-MM-DD)", prompt)
+        self.assertIn("Ignore any news outside the 7-day window", prompt)
+        self.assertIn("Ignore any news whose publication date is unknown or cannot be determined", prompt)
+        self.assertIn("Financial report and dividends (value-investing perspective)", prompt)
+        self.assertIn("never fabricate", prompt)
 
     def test_prompt_includes_capital_flow_as_operation_filter(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -230,14 +230,14 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
         prompt = analyzer._format_prompt(context, "恩捷股份", news_context=None)
 
-        self.assertIn("主力资金流向（操作建议过滤器）", prompt)
-        self.assertIn("主力净流入", prompt)
+        self.assertIn("Main-force capital flow (operation-advice filter)", prompt)
+        self.assertIn("Main-force net inflow", prompt)
         self.assertIn("-1200000", prompt)
-        # EV 契约口径：资金流出是需要加权的负面证据，而不是机械禁止追买
-        self.assertIn("需要加权的证据，不是一票否决", prompt)
-        self.assertIn("显著负面证据", prompt)
-        self.assertNotIn("不得追买", prompt)
-        self.assertIn("洗盘观察", prompt)
+        # EV contract framing: capital outflow is weighted negative evidence, not a mechanical chase ban
+        self.assertIn("weighted evidence, not a veto", prompt)
+        self.assertIn("significant negative evidence", prompt)
+        self.assertNotIn("must not chase", prompt)
+        self.assertIn("shakeout-watch", prompt)
 
     def test_prompt_prefers_context_news_window_days(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -257,8 +257,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         with patch("src.analyzer.get_config", return_value=fake_cfg):
             prompt = analyzer._format_prompt(context, "贵州茅台", news_context="news")
 
-        self.assertIn("近1日的新闻搜索结果", prompt)
-        self.assertIn("超出近1日窗口的新闻一律忽略", prompt)
+        self.assertIn("news search results for **贵州茅台(600519)** from the past 1 days", prompt)
+        self.assertIn("Ignore any news outside the 1-day window", prompt)
 
     def test_format_prompt_injects_market_phase_and_pack_summary_before_technical_data(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -289,7 +289,7 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
         phase_index = prompt.index("市场阶段上下文")
         pack_index = prompt.index("分析上下文包摘要")
-        technical_index = prompt.index("技术面数据")
+        technical_index = prompt.index("Technical Data")
         self.assertLess(phase_index, technical_index)
         self.assertLess(phase_index, pack_index)
         self.assertLess(pack_index, technical_index)
@@ -330,10 +330,10 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
         prompt = analyzer._format_prompt(context, "贵州茅台", news_context=None)
 
-        self.assertIn("### 最新行情", prompt)
-        self.assertIn("| 盘中估算价 | 1880.0 元 |", prompt)
-        self.assertNotIn("### 今日行情", prompt)
-        self.assertNotIn("| 收盘价 | 1880.0 元 |", prompt)
+        self.assertIn("### Latest quote", prompt)
+        self.assertIn("| Intraday estimated price | 1880.0 |", prompt)
+        self.assertNotIn("### Today's quote", prompt)
+        self.assertNotIn("| Close | 1880.0 |", prompt)
 
     def test_format_prompt_uses_complete_daily_labels_for_premarket_and_non_trading(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -359,13 +359,13 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
             prompt = analyzer._format_prompt(context, "贵州茅台", news_context=None)
 
-            self.assertIn("### 上一完整交易日行情", prompt)
-            self.assertIn("| 上一完整交易日收盘价 | 1870.0 元 |", prompt)
-            self.assertIn("| 开盘价 | 1860.0 元 |", prompt)
-            self.assertIn("| 最高价 | 1880.0 元 |", prompt)
-            self.assertIn("| 最低价 | 1855.0 元 |", prompt)
-            self.assertNotIn("### 今日行情", prompt)
-            self.assertNotIn("| 收盘价 | 1870.0 元 |", prompt)
+            self.assertIn("### Last completed session quote", prompt)
+            self.assertIn("| Last completed session close | 1870.0 |", prompt)
+            self.assertIn("| Open | 1860.0 |", prompt)
+            self.assertIn("| High | 1880.0 |", prompt)
+            self.assertIn("| Low | 1855.0 |", prompt)
+            self.assertNotIn("### Today's quote", prompt)
+            self.assertNotIn("| Close | 1870.0 |", prompt)
 
     def test_format_prompt_does_not_label_realtime_overlay_as_previous_close(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -397,19 +397,19 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
             prompt = analyzer._format_prompt(context, "贵州茅台", news_context=None)
 
-            self.assertIn("### 最新行情", prompt)
-            self.assertIn("| 实时估算价 | 1882.5 元 |", prompt)
-            self.assertNotIn("### 上一完整交易日行情", prompt)
-            self.assertNotIn("| 上一完整交易日收盘价 | 1882.5 元 |", prompt)
-            self.assertNotIn("| 开盘价 |", prompt)
-            self.assertNotIn("| 最高价 |", prompt)
-            self.assertNotIn("| 最低价 |", prompt)
-            self.assertIn("| 实时涨跌幅 | 0.42% |", prompt)
-            self.assertIn("| 实时成交量 | 120.00 万股 |", prompt)
-            self.assertIn("| 实时成交额 | 2.26 亿元 |", prompt)
-            self.assertNotIn("| 涨跌幅 | 0.42% |", prompt)
-            self.assertNotIn("| 成交量 | 120.00 万股 |", prompt)
-            self.assertNotIn("| 成交额 | 2.26 亿元 |", prompt)
+            self.assertIn("### Latest quote", prompt)
+            self.assertIn("| Real-time estimated price | 1882.5 |", prompt)
+            self.assertNotIn("### Last completed session quote", prompt)
+            self.assertNotIn("| Last completed session close | 1882.5 |", prompt)
+            self.assertNotIn("| Open |", prompt)
+            self.assertNotIn("| High |", prompt)
+            self.assertNotIn("| Low |", prompt)
+            self.assertIn("| Real-time change % | 0.42% |", prompt)
+            self.assertIn("| Real-time volume | 1.20M shares |", prompt)
+            self.assertIn("| Real-time turnover | 226.00M |", prompt)
+            self.assertNotIn("| Change % | 0.42% |", prompt)
+            self.assertNotIn("| Volume | 1.20M shares |", prompt)
+            self.assertNotIn("| Turnover | 226.00M |", prompt)
 
     def test_format_prompt_does_not_label_date_mismatch_as_previous_close(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -436,13 +436,13 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
         prompt = analyzer._format_prompt(context, "贵州茅台", news_context=None)
 
-        self.assertIn("### 最新行情", prompt)
-        self.assertIn("| 最新价 | 1882.5 元 |", prompt)
-        self.assertNotIn("### 上一完整交易日行情", prompt)
-        self.assertNotIn("| 上一完整交易日收盘价 | 1882.5 元 |", prompt)
-        self.assertNotIn("| 开盘价 |", prompt)
-        self.assertNotIn("| 最高价 |", prompt)
-        self.assertNotIn("| 最低价 |", prompt)
+        self.assertIn("### Latest quote", prompt)
+        self.assertIn("| Latest price | 1882.5 |", prompt)
+        self.assertNotIn("### Last completed session quote", prompt)
+        self.assertNotIn("| Last completed session close | 1882.5 |", prompt)
+        self.assertNotIn("| Open |", prompt)
+        self.assertNotIn("| High |", prompt)
+        self.assertNotIn("| Low |", prompt)
 
     def test_format_prompt_keeps_legacy_quote_labels_without_partial_intraday_context(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -466,8 +466,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
             prompt = analyzer._format_prompt(context, "贵州茅台", news_context=None)
 
-            self.assertIn("### 今日行情", prompt)
-            self.assertIn("| 收盘价 | 1880.0 元 |", prompt)
+            self.assertIn("### Today's quote", prompt)
+            self.assertIn("| Close | 1880.0 |", prompt)
 
     def test_format_prompt_omits_legacy_trend_checks_for_nondefault_skill_mode(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -498,10 +498,10 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         }
         prompt = analyzer._format_prompt(context, "贵州茅台", news_context=None)
 
-        self.assertIn("当前结构是否满足激活技能的关键触发条件", prompt)
-        self.assertNotIn("是否满足 MA5>MA10>MA20 多头排列", prompt)
-        self.assertNotIn("超过5%必须标注\"严禁追高\"", prompt)
-        self.assertNotIn("MA5>MA10>MA20为多头", prompt)
+        self.assertIn("Does the current structure meet the key trigger conditions of the activated skills", prompt)
+        self.assertNotIn("Is the MA5>MA10>MA20 bullish alignment satisfied", prompt)
+        self.assertNotIn('above 5% must be flagged "do not chase"', prompt)
+        self.assertNotIn("MA5>MA10>MA20 is bullish", prompt)
 
     def test_format_prompt_removes_bullish_reasons_when_final_trend_is_bearish(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -542,9 +542,9 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("空头排列 MA5<MA10<MA20", prompt)
         self.assertNotIn("多头排列，持续上涨", prompt)
         self.assertIn("事件催化存在但技术待确认", prompt)
-        self.assertIn("事件先行、技术待确认", prompt)
-        self.assertIn("量能异常提示", prompt)
-        self.assertIn("技术面一致性", prompt)
+        self.assertIn("event leads, technicals pending confirmation", prompt)
+        self.assertIn("the volume signal must be down-weighted", prompt)
+        self.assertIn("Technical consistency", prompt)
 
     def test_format_prompt_removes_bearish_risks_when_final_trend_is_bullish(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -580,8 +580,14 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("财报披露前波动可能放大", prompt)
         self.assertNotIn("空头排列，持续下跌\n", prompt)
         self.assertNotIn("空头排列，持续下跌", prompt)
-        self.assertIn("已剔除与多头主判断直接冲突的空头结构理由", prompt)
-        self.assertIn("已剔除与多头主判断直接冲突的空头结构风险表述", prompt)
+        self.assertIn(
+            "bearish structural reasons that directly conflict with the bullish primary verdict were removed",
+            prompt,
+        )
+        self.assertIn(
+            "bearish structural risk statements that directly conflict with the bullish primary verdict were removed",
+            prompt,
+        )
 
     def test_format_prompt_removes_bullish_reasons_when_final_trend_is_weak_bearish(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
@@ -621,7 +627,10 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertNotIn("弱势多头修复", prompt)
         self.assertNotIn("多头排列，持续上涨", prompt)
         self.assertIn("事件催化存在但技术待确认", prompt)
-        self.assertIn("已剔除与空头主判断直接冲突的看多结构理由", prompt)
+        self.assertIn(
+            "bullish structural reasons that directly conflict with the bearish primary verdict were removed",
+            prompt,
+        )
 
     def test_sanitize_trend_analysis_for_prompt_returns_derived_copy_only(self) -> None:
         original = {

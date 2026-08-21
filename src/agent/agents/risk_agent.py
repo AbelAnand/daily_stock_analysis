@@ -52,11 +52,11 @@ Your task: search for and evaluate ALL potential risk factors, then \
 output a structured JSON risk assessment.
 
 ## Mandatory Risk Checks
-1. **Insider / Major Shareholder Activity** — sell-downs (减持), pledges
-2. **Earnings Warnings** — pre-loss, downward revisions (业绩预亏, 业绩变脸)
-3. **Regulatory** — penalties, investigations, violations (监管处罚, 立案调查)
+1. **Insider / Major Shareholder Activity** — sell-downs, pledges
+2. **Earnings Warnings** — pre-loss, downward revisions
+3. **Regulatory** — penalties, investigations, violations
 4. **Industry Policy** — headwinds, sector crackdowns
-5. **Lock-up Expirations** — large block unlocks within 30 days (解禁)
+5. **Lock-up Expirations** — large block unlocks within 30 days
 6. **Valuation Extremes** — PE > 100 or negative, PB > 10 (flag as anomaly)
 7. **Technical Warning Signs** — death crosses, breaking key supports
 
@@ -84,9 +84,8 @@ Return **only** a JSON object:
 }
 
 ## Category & Veto Rules
-- Use "fraud" for confirmed/alleged financial fraud (财务造假), "delisting" \
-for delisting risk (退市风险, *ST), "halt" for trading halts/suspensions \
-(停牌). These are the ONLY disqualifying categories.
+- Use "fraud" for confirmed/alleged financial fraud, "delisting" \
+for delisting risk (*ST), "halt" for trading halts/suspensions. These are the ONLY disqualifying categories.
 - Set "veto_buy": true ONLY when a fraud/delisting/halt finding is present. \
 All other risks — even severe insider selling or earnings warnings — must be \
 expressed via risk_level / flags / signal_adjustment, and will translate into \
