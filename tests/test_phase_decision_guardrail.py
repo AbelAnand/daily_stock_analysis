@@ -131,7 +131,8 @@ def test_degraded_core_data_caps_high_confidence_hold_advice() -> None:
     assert "quote: stale" in result.dashboard["phase_decision"]["data_limitations"]
 
 
-def test_premarket_high_confidence_immediate_action_is_conservative() -> None:
+def test_premarket_high_confidence_immediate_action_is_retimed_not_erased() -> None:
+    """非盘中阶段保留方向性计划与置信度，只把动作改期到下一交易时段。"""
     result = _result()
 
     adjustments = apply_phase_decision_guardrails(
@@ -141,9 +142,16 @@ def test_premarket_high_confidence_immediate_action_is_conservative() -> None:
         report_language="zh",
     )
 
-    assert "confidence_capped_non_intraday_action" in adjustments
-    assert result.confidence_level == "低"
-    assert result.dashboard["phase_decision"]["immediate_action"] == "等待盘中确认，禁止追高。"
+    assert "non_intraday_action_adjusted" in adjustments
+    # 阶段原因不再降级置信度
+    assert "confidence_capped_non_intraday_action" not in adjustments
+    assert result.confidence_level == "高"
+    # 方向性计划保留在改期后的动作里
+    immediate_action = result.dashboard["phase_decision"]["immediate_action"]
+    assert immediate_action.startswith("下一交易时段按计划执行：")
+    assert "立即买入" in immediate_action
+    assert result.decision_type == "buy"
+    assert result.operation_advice == "立即买入"
 
 
 def test_premarket_medium_confidence_immediate_action_rewrites_action_only() -> None:
@@ -175,10 +183,10 @@ def test_premarket_medium_confidence_immediate_action_rewrites_action_only() -> 
     assert "non_intraday_action_adjusted" in adjustments
     assert "confidence_capped_non_intraday_action" not in adjustments
     assert result.confidence_level == "Medium"
-    assert result.dashboard["phase_decision"]["immediate_action"] == (
-        "Wait for intraday confirmation; do not chase."
-    )
-    assert "buy now" not in result.dashboard["phase_decision"]["immediate_action"].lower()
+    immediate_action = result.dashboard["phase_decision"]["immediate_action"]
+    assert immediate_action.startswith("Execute at the next trading session per plan:")
+    # 原方向性计划文本被保留（改期，而非清空）
+    assert "buy now" in immediate_action.lower()
 
 
 def test_unknown_low_confidence_immediate_action_rewrites_action_only() -> None:
@@ -209,10 +217,13 @@ def test_unknown_low_confidence_immediate_action_rewrites_action_only() -> None:
     assert "non_intraday_action_adjusted" in adjustments
     assert "confidence_capped_non_intraday_action" not in adjustments
     assert result.confidence_level == "低"
-    assert result.dashboard["phase_decision"]["immediate_action"] == "等待盘中确认，禁止追高。"
+    immediate_action = result.dashboard["phase_decision"]["immediate_action"]
+    assert immediate_action.startswith("下一交易时段按计划执行：")
+    assert "立即买入" in immediate_action
 
 
-def test_premarket_degraded_immediate_action_uses_strongest_cap() -> None:
+def test_premarket_degraded_caps_confidence_for_data_quality_only() -> None:
+    """数据质量降级仍然限制置信度（高→中），但阶段本身不再进一步降级。"""
     result = _result()
 
     adjustments = apply_phase_decision_guardrails(
@@ -223,9 +234,11 @@ def test_premarket_degraded_immediate_action_uses_strongest_cap() -> None:
     )
 
     assert "confidence_capped_core_data_degraded" in adjustments
-    assert "confidence_capped_non_intraday_action" in adjustments
-    assert result.confidence_level == "低"
-    assert result.dashboard["phase_decision"]["immediate_action"] == "等待盘中确认，禁止追高。"
+    assert "confidence_capped_non_intraday_action" not in adjustments
+    assert "non_intraday_action_adjusted" in adjustments
+    assert result.confidence_level == "中"
+    immediate_action = result.dashboard["phase_decision"]["immediate_action"]
+    assert immediate_action.startswith("下一交易时段按计划执行：")
 
 
 def test_intraday_postmarket_recap_wording_is_adjusted_in_zh_and_en() -> None:

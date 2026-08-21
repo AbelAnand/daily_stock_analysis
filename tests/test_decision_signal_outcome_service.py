@@ -479,19 +479,26 @@ def test_stock_code_filter_uses_hk_aliases_without_widening_market_filter(isolat
 
 
 def test_not_up_uses_defensive_direction_not_down_direction(isolated_db) -> None:
+    # 对称打分（benchmark_relative_symmetric_v1）：
+    # reduce/not_up 需跌破 -band 才计 hit；横盘（|r| < band）不再免费得 hit，计 neutral。
     reduce_hit_id = _add_signal(isolated_db, code="600519", action="reduce", horizon="3d")
     reduce_miss_id = _add_signal(isolated_db, code="000001", action="reduce", horizon="3d")
-    _seed_bars(isolated_db, code="600519", closes=[100.5, 101.0, 101.5])
+    reduce_neutral_id = _add_signal(isolated_db, code="600000", action="reduce", horizon="3d")
+    _seed_bars(isolated_db, code="600519", closes=[99.0, 98.0, 97.0])
     _seed_bars(isolated_db, code="000001", closes=[101.0, 102.0, 103.0])
+    _seed_bars(isolated_db, code="600000", closes=[100.5, 101.0, 101.5])
     service = DecisionSignalOutcomeService(db_manager=isolated_db)
 
     hit = service.run_outcomes(signal_id=reduce_hit_id)["items"][0]
     miss = service.run_outcomes(signal_id=reduce_miss_id)["items"][0]
+    neutral = service.run_outcomes(signal_id=reduce_neutral_id)["items"][0]
 
     assert hit["direction_expected"] == "not_up"
     assert hit["outcome"] == "hit"
     assert miss["direction_expected"] == "not_up"
     assert miss["outcome"] == "miss"
+    assert neutral["direction_expected"] == "not_up"
+    assert neutral["outcome"] == "neutral"
 
 
 def test_unable_reasons_are_persisted_for_non_directional_and_unsupported_horizon(isolated_db) -> None:

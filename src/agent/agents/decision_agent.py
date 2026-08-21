@@ -32,6 +32,17 @@ class DecisionAgent(BaseAgent):
     def _is_chat_mode(ctx: AgentContext) -> bool:
         return ctx.meta.get("response_mode") == "chat"
 
+    @staticmethod
+    def _collect_risk_context(ctx: AgentContext) -> Optional[dict]:
+        """读取 RiskAgent 的非投票 risk_context（复用聚合器的唯一实现）。"""
+        try:
+            from src.agent.skills.aggregator import SkillAggregator
+
+            return SkillAggregator._extract_risk_context(ctx.opinions)
+        except Exception:
+            logger.debug("[DecisionAgent] failed to extract risk context", exc_info=True)
+            return None
+
     def system_prompt(self, ctx: AgentContext) -> str:
         report_language = normalize_report_language(ctx.meta.get("report_language", "zh"))
         if self._is_chat_mode(ctx):
@@ -73,15 +84,21 @@ Your task: synthesise all inputs into a single, actionable Decision Dashboard.
 ## Core Principles
 1. **Core conclusion first** — one sentence, ≤30 chars
 2. **Split advice** — different for no-position vs has-position
-3. **Precise sniper levels** — concrete price numbers, no hedging
+3. **Precise sniper levels** — concrete price numbers; commit to the expected-value verdict, no hedging
 4. **Checklist visual** — ✅⚠️❌ for each checkpoint
-5. **Risk priority** — risk alerts must be prominent. If high-severity risk exists, \
-   the overall signal must be downgraded accordingly.
+5. **Risk priority** — risk alerts must be prominent. High-severity risk must be \
+   annotated in risk_warning and reflected as a smaller suggested position size \
+   and a tighter/wider-documented stop; it does not by itself force the signal to hold.
 
 ## Signal Weighting Guidelines
 - Technical opinion weight: ~40%
 - Intel / sentiment weight: ~30%
-- Risk flags weight: ~30% (negative override: any high-severity risk caps signal at "hold")
+- Risk assessment weight: ~30% — the Risk Agent is NON-VOTING \
+  (signal=risk_assessment) and never sets direction. Consume its outputs: \
+  scale the suggested position by ``position_size_factor``, surface \
+  ``risk_notes`` prominently in risk_warning, and tighten the stop when risk \
+  is medium/high (stop tightening, not a veto). Only severe findings \
+  (fraud / delisting / halt, ``veto_buy=true``) may block a buy.
 - If a skill opinion is present, blend it at 20% weight (reducing others proportionally)
 
 ## Scoring
@@ -91,12 +108,35 @@ Your task: synthesise all inputs into a single, actionable Decision Dashboard.
 - 20-39: sell (negative trend + risk)
 - 0-19: sell (major risk + bearish)
 
-## Actionability Guardrails
-- Do not flip directly between buy and sell only because one trading day moved up or down.
-- Base operation_advice on support/resistance, volume/chip context, main-force capital flow, and risk flags.
-- If price is between support and resistance and capital flow is not clearly one-sided, prefer a neutral action such as hold/watch/range-bound/shakeout watch; keep decision_type as hold.
-- Buy requires support confirmation or a valid resistance breakout with volume/capital-flow confirmation.
-- Sell requires support failure, sustained main-force outflow, or clearly elevated risk.
+## Expected-Value Contract (replaces hedging)
+Every synthesis must state:
+- ``p_up``: integer percent in steps of 5 — your probability that price reaches \
+  target before stop over the stated horizon
+- entry, stop, target — prefer the computed support/resistance levels; you may \
+  adjust them with explicit justification
+- the R multiple = (target - entry) / (entry - stop)
+- expected value EV = p*R - (1 - p), where p = p_up/100
+
+Emit hold/watch ONLY when EV < 0 or R < 1.5 — and every hold MUST name the \
+specific price level or event (``flip_condition``) that would flip it to buy or \
+sell. A moderate-risk trade with positive EV and R >= 1.5 is a buy with an \
+honest p_up, not a hold.
+
+Stability rules:
+- Do not flip directly between buy and sell only because one trading day moved \
+  up or down; a changed verdict must be anchored to a level or event.
+- Base operation_advice on support/resistance, volume/chip context, main-force \
+  capital flow where available, and risk flags.
+- Markets without capital-flow data (US/HK/TW): price structure plus volume \
+  suffice; never withhold a buy/sell verdict merely because capital flow is \
+  unavailable.
+- Buy needs support confirmation or a valid resistance breakout with volume \
+  (and capital-flow where available) confirmation; sell needs support failure, \
+  sustained outflow, or clearly elevated risk — expressed through EV, not vetoes.
+
+Include ``p_up`` as a top-level output field and an ``ev_contract`` object with \
+``entry``, ``stop``, ``target``, ``r_multiple``, ``expected_value``, \
+``flip_condition``.
 
 ## Output Format
 Return a valid JSON object following the Decision Dashboard schema.  The JSON \
@@ -222,6 +262,18 @@ should sum to 100; all-zero means no effective signal and must not be faked.
             parts.append("## Risk Flags")
             for rf in ctx.risk_flags:
                 parts.append(f"- [{rf.get('severity', 'medium')}] {rf.get('category', '')}: {rf.get('description', '')}")
+            parts.append("")
+
+        # RiskAgent 非投票输出：建议仓位系数 / severe 否决标志 / 风险提示。
+        # 用于压缩 suggested position 与收紧止损，不参与方向投票。
+        risk_context = self._collect_risk_context(ctx)
+        if risk_context:
+            parts.append("## Risk Context (non-voting)")
+            parts.append(
+                "Apply position_size_factor to the suggested position and tighten "
+                "the stop for medium/high risk; severe_veto only blocks buys."
+            )
+            parts.append(json.dumps(risk_context, ensure_ascii=False, default=str))
             parts.append("")
 
         disagreement_summary = ctx.meta.get("agent_disagreement_summary")

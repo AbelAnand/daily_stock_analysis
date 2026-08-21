@@ -81,10 +81,11 @@ def test_risk_agent_buy_signal_is_neutral_risk_clear_not_bullish():
     assert "private risk payload" not in summary_text
 
 
-def test_high_severity_risk_flag_takes_override_priority():
+def test_severe_risk_flag_takes_override_priority():
+    """Only the severe set (fraud/delisting/halt) may still veto a buy."""
     ctx = AgentContext(query="test", stock_code="600519")
     ctx.add_opinion(AgentOpinion(agent_name="technical", signal="buy", confidence=0.86))
-    ctx.add_risk_flag(category="regulatory", description="material investigation", severity="high")
+    ctx.add_risk_flag(category="fraud", description="confirmed financial fraud", severity="high")
 
     summary = build_agent_disagreement_summary(ctx)
 
@@ -93,6 +94,22 @@ def test_high_severity_risk_flag_takes_override_priority():
     assert summary["risk_control"]["override_trigger_present"] is True
     assert summary["conflict_type"] == "risk_override"
     assert summary["decision_path_hint"] == "prioritize_risk_controls_and_cap_buy_signal"
+
+
+def test_high_severity_non_severe_flag_requires_stop_tightening_not_veto():
+    """A high-severity flag outside fraud/delisting/halt is evidence plus a
+    mandatory stop-tightening note — it must no longer veto the buy."""
+    ctx = AgentContext(query="test", stock_code="600519")
+    ctx.add_opinion(AgentOpinion(agent_name="technical", signal="buy", confidence=0.86))
+    ctx.add_risk_flag(category="regulatory", description="material investigation", severity="high")
+
+    summary = build_agent_disagreement_summary(ctx)
+
+    assert summary["risk_override_present"] is False
+    assert summary["risk_control"]["evidence_present"] is True
+    assert summary["risk_control"]["override_trigger_present"] is False
+    assert summary["risk_control"]["stop_tightening_required"] is True
+    assert summary["conflict_type"] != "risk_override"
 
 
 def test_risk_level_high_is_evidence_not_override_by_itself():

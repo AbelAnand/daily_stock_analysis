@@ -15,7 +15,6 @@ from src.agent.skills.aggregator import AggregationData, SkillAggregator
 from src.agent.skills.defaults import (
     LEGACY_STRATEGY_CONSENSUS_AGENT_NAME,
     SKILL_CONSENSUS_AGENT_NAME,
-    extract_skill_id,
     is_skill_agent_name,
 )
 from src.agent.skills.synthesis import StrategySynthesizer
@@ -198,6 +197,18 @@ class StrategyEngine:
             invalid_count=partition.invalid_count,
         )
         consensus_opinion = self._build_consensus_opinion(aggregation, synthesis)
+
+        # RiskAgent 输出是非方向性的（signal=risk_assessment），位于 non_skill
+        # 分区；与 SkillAggregator.aggregate 保持一致，把 risk_context（veto
+        # 标志 / 建议仓位系数 / 风险提示）附着在共识 opinion 上。
+        risk_context = SkillAggregator._extract_risk_context(partition.non_skill_opinions)
+        if risk_context is not None:
+            consensus_opinion.raw_data["risk_context"] = risk_context
+            consensus_opinion.reasoning += (
+                f"\n  risk (non-voting): level={risk_context['risk_level']}, "
+                f"position_size_factor={risk_context['position_size_factor']:.2f}, "
+                f"severe_veto={risk_context['severe_veto']}"
+            )
         return StrategyResult(
             status=StrategyResultStatus.CONSENSUS,
             synthesis_dict=synthesis,
@@ -218,32 +229,14 @@ class StrategyEngine:
 
     @staticmethod
     def _build_consensus_opinion(aggregation: AggregationData, synthesis: Dict[str, Any]) -> AgentOpinion:
-        reasoning_parts = [
-            f"Skill consensus from {len(aggregation.skill_opinions)} skills "
-            f"({', '.join(aggregation.skill_names)}): weighted score {aggregation.weighted_score:.2f}/5.0, "
-            f"consensus={synthesis['consensus_level']}, conflicts={synthesis['conflict_severity']}({synthesis['conflict_count']})"
-        ]
-        for opinion, weight in zip(aggregation.skill_opinions, aggregation.weights):
-            name = extract_skill_id(opinion.agent_name) or opinion.agent_name
-            reasoning_parts.append(f"  - {name}: {opinion.signal} ({opinion.confidence:.0%}) weight={weight:.2f}")
+        """Delegate to the aggregator's single authoritative consensus builder.
 
-        return AgentOpinion(
-            agent_name=SKILL_CONSENSUS_AGENT_NAME,
-            signal=aggregation.final_signal,
-            confidence=synthesis["confidence"],
-            reasoning="\n".join(reasoning_parts),
-            raw_data={
-                "weighted_score": round(aggregation.weighted_score, 2),
-                "total_adjustment": aggregation.total_adjustment,
-                "skill_count": len(aggregation.skill_opinions),
-                "individual_signals": aggregation.individual_signals,
-                "strategy_synthesis": synthesis,
-                "conflicts": synthesis["conflicts"],
-                "conflict_count": synthesis["conflict_count"],
-                "conflict_severity": synthesis["conflict_severity"],
-                "consensus_level": synthesis["consensus_level"],
-            },
-        )
+        统一到 SkillAggregator.build_consensus_opinion，避免两份重复实现漂移：
+        分布决策元数据（signal_distribution / direction_counts / score_dispersion /
+        decision_rule / decision_reason / disagreement_skills）与 hold_reason
+        由此进入共识 opinion 的 raw_data。
+        """
+        return SkillAggregator.build_consensus_opinion(aggregation, synthesis)
 
     @staticmethod
     def _build_no_consensus_stub(invalid_count: int) -> Dict[str, Any]:

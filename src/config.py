@@ -1179,8 +1179,11 @@ class Config:
     backtest_enabled: bool = True
     backtest_eval_window_days: int = 10
     backtest_min_age_days: int = 14
-    backtest_engine_version: str = "v1"
+    # v2 = benchmark_relative_symmetric_v1 计分方案；历史 v1 结果会在增量回测中按 v2 重算
+    backtest_engine_version: str = "v2"
     backtest_neutral_band_pct: float = 2.0
+    # 每日分析后自动结算：决策信号后验评估 + 回测摘要刷新（失败不影响分析主流程）
+    outcome_scoring_enabled: bool = True
     
     # === 日志配置 ===
     log_dir: str = "./logs"  # 日志文件目录
@@ -2146,7 +2149,8 @@ class Config:
             backtest_enabled=os.getenv('BACKTEST_ENABLED', 'true').lower() == 'true',
             backtest_eval_window_days=parse_env_int(os.getenv('BACKTEST_EVAL_WINDOW_DAYS'), 10, field_name='BACKTEST_EVAL_WINDOW_DAYS', minimum=1),
             backtest_min_age_days=parse_env_int(os.getenv('BACKTEST_MIN_AGE_DAYS'), 14, field_name='BACKTEST_MIN_AGE_DAYS', minimum=1),
-            backtest_engine_version=os.getenv('BACKTEST_ENGINE_VERSION', 'v1'),
+            backtest_engine_version=os.getenv('BACKTEST_ENGINE_VERSION', 'v2'),
+            outcome_scoring_enabled=os.getenv('OUTCOME_SCORING_ENABLED', 'true').lower() == 'true',
             backtest_neutral_band_pct=parse_env_float(
                 os.getenv('BACKTEST_NEUTRAL_BAND_PCT'),
                 2.0,

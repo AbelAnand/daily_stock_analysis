@@ -106,6 +106,21 @@ def build_decision_signal_payload_from_report(
         "decision_signal_metadata_version": "decision-signal-metadata-v1",
         "canonical_decision_scale_version": CANONICAL_DECISION_SCALE_VERSION,
     }
+    # EV 契约：p_up / R / EV 随信号持久化，供后验校准（Brier / reliability）直接读取
+    _dashboard = getattr(result, "dashboard", None)
+    if isinstance(_dashboard, dict):
+        _p_up = _dashboard.get("p_up")
+        if isinstance(_p_up, (int, float)) and 0 <= float(_p_up) <= 100:
+            # 分析端输出为 0-100 整数百分比；信号 metadata 契约为 0-1 小数
+            metadata["p_up"] = float(_p_up) / 100.0 if float(_p_up) > 1.0 else float(_p_up)
+        _ev = _dashboard.get("ev_contract")
+        if isinstance(_ev, dict):
+            for _k in ("r_multiple", "expected_value"):
+                _v = _ev.get(_k)
+                if isinstance(_v, (int, float)):
+                    metadata[f"ev_{_k}"] = float(_v)
+            if _ev.get("flip_condition"):
+                metadata["flip_condition"] = str(_ev["flip_condition"])[:500]
     score_metadata = score_band_metadata(score)
     if score_metadata:
         metadata["score_scale"] = score_metadata

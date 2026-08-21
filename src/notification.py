@@ -419,8 +419,85 @@ class NotificationService(
         """Generate the aggregate report content used by merge/save/push paths."""
         normalized_type = self._normalize_report_type(report_type)
         if normalized_type == ReportType.BRIEF:
-            return self.generate_brief_report(results, report_date=report_date)
-        return self.generate_dashboard_report(results, report_date=report_date)
+            report = self.generate_brief_report(results, report_date=report_date)
+        else:
+            report = self.generate_dashboard_report(results, report_date=report_date)
+        scorecard = self._build_scorecard_section()
+        if scorecard:
+            report = f"{report}\n\n{scorecard}"
+        return report
+
+    def _build_scorecard_section(self) -> str:
+        """构建紧凑版历史战绩区块（读取最新持久化回测汇总，缺失时静默跳过）。
+
+        只读路径：不触发回测计算；输出控制在 4-6 行，适合手机端摘要推送。
+        """
+        try:
+            from src.services.backtest_service import BacktestService
+
+            summary = BacktestService().get_summary(
+                scope="overall",
+                code=None,
+                eval_window_days=None,
+            )
+        except Exception as exc:
+            logger.debug(f"读取回测汇总失败，跳过战绩区块: {exc}")
+            return ""
+        if not isinstance(summary, dict):
+            return ""
+
+        strict_pct = self._fmt_scorecard_pct(summary.get("strict_accuracy_pct"))
+        win_pct = self._fmt_scorecard_pct(summary.get("win_rate_pct"))
+        if strict_pct is None and win_pct is None:
+            return ""
+
+        lines = [f"📊 战绩（近{summary.get('eval_window_days')}个交易日窗口）"]
+        scored = summary.get("scored_count") or summary.get("completed_count")
+        accuracy_line = f"- 严格准确率 {strict_pct or 'N/A'} | 传统胜率 {win_pct or 'N/A'}"
+        if scored:
+            accuracy_line += f"（n={scored}）"
+        lines.append(accuracy_line)
+
+        calibration = summary.get("calibration")
+        if isinstance(calibration, dict) and calibration.get("brier_score") is not None:
+            try:
+                brier = f"{float(calibration['brier_score']):.3f}"
+                brier_line = f"- Brier {brier}"
+                if calibration.get("sample_count"):
+                    brier_line += f"（样本 {calibration['sample_count']}）"
+                lines.append(brier_line)
+            except (TypeError, ValueError):
+                pass
+
+        direction_breakdown = summary.get("direction_breakdown")
+        if isinstance(direction_breakdown, dict):
+            label_map = (("up", "买"), ("not_down", "持"), ("flat", "观"), ("down", "卖"))
+            cells = []
+            for direction, label in label_map:
+                bucket = direction_breakdown.get(direction)
+                if not isinstance(bucket, dict):
+                    continue
+                hit = self._fmt_scorecard_pct(
+                    bucket.get("strict_accuracy_pct")
+                    if bucket.get("strict_accuracy_pct") is not None
+                    else bucket.get("win_rate_pct")
+                )
+                if hit is None:
+                    continue
+                cells.append(f"{label} {hit}")
+            if cells:
+                lines.append("- 分方向命中: " + " · ".join(cells))
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _fmt_scorecard_pct(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            return f"{float(value):.1f}%"
+        except (TypeError, ValueError):
+            return None
 
     def _collect_models_used(self, results: List[AnalysisResult]) -> List[str]:
         if not self._should_show_llm_model():
@@ -1371,6 +1448,10 @@ class NotificationService(
                     f"⏰ **{labels['time_sensitivity_label']}**: {time_sense}",
                     "",
                 ])
+                # EV 契约：p_up / R / EV / 翻转条件（存在时展示；缺失字段静默跳过）
+                trade_math_line = self._build_trade_math_line(dashboard, report_language)
+                if trade_math_line:
+                    report_lines.extend([trade_math_line, ""])
                 # 持仓分类建议
                 if pos_advice:
                     report_lines.extend([
@@ -2077,6 +2158,40 @@ class NotificationService(
         if not mapping:
             return raw_source
         return mapping[normalize_report_language(language)]
+
+    @staticmethod
+    def _build_trade_math_line(dashboard: Any, report_language: str) -> str:
+        """渲染 EV 契约一行：p_up / R 倍数 / 期望值 / 翻转条件。任一字段缺失则跳过该字段。"""
+        if not isinstance(dashboard, dict):
+            return ""
+        p_up = dashboard.get("p_up")
+        ev = dashboard.get("ev_contract") if isinstance(dashboard.get("ev_contract"), dict) else {}
+        parts = []
+        try:
+            if isinstance(p_up, (int, float)):
+                pct = float(p_up) * 100 if float(p_up) <= 1.0 else float(p_up)
+                parts.append(f"p↑ {pct:.0f}%")
+            r = ev.get("r_multiple")
+            if isinstance(r, (int, float)):
+                parts.append(f"R {float(r):.1f}")
+            e = ev.get("expected_value")
+            if isinstance(e, (int, float)):
+                parts.append(f"EV {float(e):+.2f}")
+        except (TypeError, ValueError):
+            return ""
+        if not parts:
+            return ""
+        if report_language == "en":
+            label, flip_label = "Trade Math", "Flip"
+        elif report_language == "ko":
+            label, flip_label = "트레이드 수학", "전환 조건"
+        else:
+            label, flip_label = "交易数学", "翻转条件"
+        line = f"🎲 **{label}**: " + " | ".join(parts)
+        flip = ev.get("flip_condition")
+        if isinstance(flip, str) and flip.strip():
+            line += f"\n> **{flip_label}**: {flip.strip()}"
+        return line
 
     def _append_market_snapshot(self, lines: List[str], result: AnalysisResult) -> None:
         snapshot = getattr(result, 'market_snapshot', None)

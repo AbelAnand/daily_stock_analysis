@@ -179,8 +179,8 @@ def test_beta_prior_shrinks_minimum_sample_hit_rate_toward_neutral():
 
     weights = service.compute_weights(["alpha"])
 
-    # Beta(15, 15) posterior = Beta(45, 15), so direction score = 0.5.
-    assert weights["alpha"] == pytest.approx(1.2 ** 0.5)
+    # Beta(5, 5) posterior = Beta(35, 5), so direction score = 0.75.
+    assert weights["alpha"] == pytest.approx(1.6 ** 0.75)
 
 
 def test_more_evidence_moves_posterior_closer_to_observed_hit_rate():
@@ -201,11 +201,11 @@ def test_more_evidence_moves_posterior_closer_to_observed_hit_rate():
 
     weights = service.compute_weights(["small", "large"])
 
-    # small: posterior=33/60, direction=0.1
-    assert weights["small"] == pytest.approx(1.2 ** 0.1)
-    # large: posterior=195/330, direction=2*(195/330)-1
+    # small: posterior=23/40, direction=0.15
+    assert weights["small"] == pytest.approx(1.6 ** 0.15)
+    # large: posterior=185/310, direction=2*(185/310)-1
     assert weights["large"] == pytest.approx(
-        1.2 ** (2 * (195 / 330) - 1)
+        1.6 ** (2 * (185 / 310) - 1)
     )
     assert weights["large"] > weights["small"] > 1.0
 
@@ -235,11 +235,11 @@ def test_sufficient_horizons_use_evidence_weighted_model_average():
 
     weights = service.compute_weights(["alpha"])
 
-    # 1d: direction=0.3, strength=0.5.
-    # 3d: direction=0.0, strength=0.75.
+    # 1d: posterior=29/40 -> direction=0.45, strength=30/40=0.75.
+    # 3d: posterior=50/100 -> direction=0.0, strength=90/100=0.9.
     # 5d is insufficient and cannot lend its samples to either bucket.
-    combined_score = (0.3 * 0.5 + 0.0 * 0.75) / (0.5 + 0.75)
-    assert weights["alpha"] == pytest.approx(1.2 ** combined_score)
+    combined_score = (0.45 * 0.75 + 0.0 * 0.9) / (0.75 + 0.9)
+    assert weights["alpha"] == pytest.approx(1.6 ** combined_score)
 
 
 def test_terminal_unable_rate_conservatively_reduces_factor():
@@ -254,10 +254,10 @@ def test_terminal_unable_rate_conservatively_reduces_factor():
 
     weights = service.compute_weights(["alpha"])
 
-    # direction=0.5, terminal unable rate=30/(30+30)=0.5,
-    # bucket score=0.5-0.25*0.5=0.375.
-    assert weights["alpha"] == pytest.approx(1.2 ** 0.375)
-    assert 1.0 < weights["alpha"] < 1.2 ** 0.5
+    # direction=0.75, terminal unable rate=30/(30+30)=0.5,
+    # bucket score=0.75-0.25*0.5=0.625.
+    assert weights["alpha"] == pytest.approx(1.6 ** 0.625)
+    assert 1.0 < weights["alpha"] < 1.6 ** 0.75
 
 
 def test_extreme_negative_evidence_stays_at_multiplicative_lower_bound():
@@ -272,7 +272,7 @@ def test_extreme_negative_evidence_stays_at_multiplicative_lower_bound():
 
     weights = service.compute_weights(["alpha"])
 
-    assert weights["alpha"] == pytest.approx(1.0 / 1.2)
+    assert weights["alpha"] == pytest.approx(1.0 / 1.6)
 
 
 @pytest.mark.parametrize(
@@ -339,5 +339,5 @@ def test_real_outcomes_flow_through_statistics_into_aggregator(
     )
 
     assert result is not None
-    assert result.weights == pytest.approx([1.2 ** 0.5, 1.0])
+    assert result.weights == pytest.approx([1.6 ** 0.75, 1.0])
     assert result.weighted_score > 3.0

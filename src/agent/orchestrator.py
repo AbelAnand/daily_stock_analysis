@@ -52,6 +52,7 @@ from src.agent.skills.engine import EvidencePartition, StrategyEngine, StrategyR
 from src.agent.skills.scheduler import AgentSkillScheduler, SkillBatchResult
 from src.agent.risk_override import (
     RiskOverrideApplication,
+    RiskOverridePlan,
     build_risk_override_application,
     build_risk_override_plan,
 )
@@ -1506,6 +1507,19 @@ class AgentOrchestrator:
         battle["sniper_points"] = sniper
         if "action_checklist" not in battle:
             battle["action_checklist"] = []
+
+        # 非方向性风险消费：risk_context.position_size_factor 压缩建议仓位，
+        # plan.stop_tightening_required 附加强制收紧止损说明（不改方向）。
+        risk_context = self._collect_risk_context(ctx)
+        position_size_factor: Optional[float] = None
+        if isinstance(risk_context, dict):
+            factor = risk_context.get("position_size_factor")
+            if isinstance(factor, (int, float)) and not isinstance(factor, bool):
+                position_size_factor = float(factor)
+        risk_plan = ctx.meta.get("risk_override_plan")
+        if not isinstance(risk_plan, RiskOverridePlan):
+            risk_plan = None
+
         position_strategy = battle.get("position_strategy")
         if risk_applied:
             position_strategy = (
@@ -1513,7 +1527,9 @@ class AgentOrchestrator:
                 if isinstance(position_strategy, dict)
                 else {}
             )
-            position_strategy["suggested_position"] = _default_position_size(decision_type)
+            position_strategy["suggested_position"] = _default_position_size(
+                decision_type, position_size_factor
+            )
             position_strategy["entry_plan"] = position_advice["no_position"]
             position_strategy.setdefault(
                 "risk_control",
@@ -1522,10 +1538,37 @@ class AgentOrchestrator:
             battle["position_strategy"] = position_strategy
         elif not isinstance(position_strategy, dict) or not position_strategy:
             battle["position_strategy"] = {
-                "suggested_position": _default_position_size(decision_type),
+                "suggested_position": _default_position_size(
+                    decision_type, position_size_factor
+                ),
                 "entry_plan": position_advice["no_position"],
                 "risk_control": f"止损参考 {sniper.get('stop_loss', '待补充')}",
             }
+        else:
+            # LLM 已给出仓位策略：按建议仓位系数标注压缩说明，不覆盖原文。
+            position_strategy = dict(position_strategy)
+            suggested = _first_non_empty_text(
+                position_strategy.get("suggested_position")
+            ) or _default_position_size(decision_type)
+            position_strategy["suggested_position"] = _annotate_position_with_factor(
+                suggested, position_size_factor
+            )
+            battle["position_strategy"] = position_strategy
+
+        if risk_plan is not None and risk_plan.stop_tightening_required:
+            strategy_block = battle.get("position_strategy")
+            if isinstance(strategy_block, dict):
+                strategy_block = dict(strategy_block)
+                tightening_note = (
+                    risk_plan.stop_tightening_note
+                    or "风险级别达到 medium 及以上：必须收紧止损。"
+                )
+                risk_control = _first_non_empty_text(strategy_block.get("risk_control"))
+                if tightening_note not in risk_control:
+                    strategy_block["risk_control"] = (
+                        f"{risk_control}；{tightening_note}" if risk_control else tightening_note
+                    )
+                battle["position_strategy"] = strategy_block
 
         data_perspective = dashboard_block.get("data_perspective")
         if not isinstance(data_perspective, dict):
@@ -1541,6 +1584,21 @@ class AgentOrchestrator:
         if strategy_synthesis:
             dashboard_block["strategy_synthesis"] = strategy_synthesis
 
+        # 分布决策元数据进入渲染报告：decision_rule / decision_reason / hold_reason。
+        consensus_raw = self._collect_consensus_raw(ctx)
+        decision_rule = consensus_raw.get("decision_rule") if consensus_raw else None
+        hold_reason = consensus_raw.get("hold_reason") if consensus_raw else None
+        if decision_rule:
+            consensus_decision = {
+                "decision_rule": decision_rule,
+                "decision_reason": consensus_raw.get("decision_reason"),
+            }
+            if hold_reason:
+                consensus_decision["hold_reason"] = hold_reason
+            dashboard_block["consensus_decision"] = {
+                key: value for key, value in consensus_decision.items() if value
+            }
+
         dashboard_block["core_conclusion"] = core
         dashboard_block["intelligence"] = intelligence
         dashboard_block["battle_plan"] = battle
@@ -1552,6 +1610,13 @@ class AgentOrchestrator:
                 for op in ctx.opinions
                 if isinstance(op.reasoning, str) and op.reasoning.strip()
             ][:5]
+        if hold_reason and decision_type == "hold":
+            # hold 必须能解释自己：把共识 hold 原因显式带进报告要点。
+            hold_line = _truncate_text(
+                f"共识 hold 原因（{decision_rule}）: {hold_reason}", 160
+            )
+            if hold_line not in key_points:
+                key_points = list(key_points) + [hold_line]
 
         risk_warning = _first_non_empty_text(
             payload.get("risk_warning"),
@@ -1778,6 +1843,37 @@ class AgentOrchestrator:
         return catalysts[:8]
 
     @staticmethod
+    def _collect_consensus_raw(ctx: AgentContext) -> Optional[Dict[str, Any]]:
+        """读取 skill 共识 opinion 的 raw_data（分布决策元数据所在处）。"""
+        consensus_data = ctx.get_data("skill_consensus")
+        if isinstance(consensus_data, dict):
+            raw_data = consensus_data.get("raw_data")
+            if isinstance(raw_data, dict) and raw_data:
+                return raw_data
+        for opinion in reversed(ctx.opinions):
+            if getattr(opinion, "agent_name", "") not in {"skill_consensus", "strategy_consensus"}:
+                continue
+            raw_data = opinion.raw_data if isinstance(opinion.raw_data, dict) else {}
+            if raw_data:
+                return raw_data
+        return None
+
+    def _collect_risk_context(self, ctx: AgentContext) -> Optional[Dict[str, Any]]:
+        """读取非方向性 risk_context：优先共识 raw_data，回退 RiskAgent 观点。"""
+        consensus_raw = self._collect_consensus_raw(ctx)
+        if isinstance(consensus_raw, dict):
+            risk_context = consensus_raw.get("risk_context")
+            if isinstance(risk_context, dict):
+                return risk_context
+        try:
+            from src.agent.skills.aggregator import SkillAggregator
+
+            return SkillAggregator._extract_risk_context(ctx.opinions)
+        except Exception:
+            logger.debug("[Orchestrator] failed to extract risk context", exc_info=True)
+            return None
+
+    @staticmethod
     def _latest_opinion(ctx: AgentContext, names: set[str]) -> Optional[Any]:
         for opinion in reversed(ctx.opinions):
             if opinion.agent_name in names:
@@ -1851,6 +1947,9 @@ class AgentOrchestrator:
         )
         application = build_risk_override_application(plan)
         ctx.meta["risk_override_application"] = application
+        # 保留 plan 供仪表盘收尾消费：stop_tightening_required / stop_tightening_note
+        # 与 severe 标记不改变方向，但需要落到 position_strategy 上。
+        ctx.meta["risk_override_plan"] = plan
         if not application.applied:
             return application
 
@@ -1867,11 +1966,14 @@ class AgentOrchestrator:
         })
 
         logger.info(
-            "[Orchestrator] risk override applied: %s -> %s (adjustment=%s, high_flag=%s)",
+            "[Orchestrator] risk override applied: %s -> %s "
+            "(adjustment=%s, high_flag=%s, severe_flag=%s, stop_tightening=%s)",
             current_signal,
             new_signal,
             plan.adjustment or ("veto" if plan.veto_buy else "none"),
             plan.has_high_flag,
+            plan.has_severe_flag,
+            plan.stop_tightening_required,
         )
         return application
 
@@ -2056,13 +2158,37 @@ def _post_risk_position_advice(signal: str) -> Dict[str, str]:
     return dict(mapping.get(signal, _default_position_advice(signal)))
 
 
-def _default_position_size(signal: str) -> str:
+def _annotate_position_with_factor(text: str, factor: Optional[float]) -> str:
+    """按 risk_context 的建议仓位系数标注仓位说明（factor<1 时压缩，=0 时归零）。"""
+    if factor is None:
+        return text
+    try:
+        normalized = max(0.0, min(1.0, float(factor)))
+    except (TypeError, ValueError):
+        return text
+    if normalized >= 1.0:
+        return text
+    if normalized <= 0.0:
+        # severe 类别（造假/退市/停牌）建议仓位归零：直接替换而不是追加标注。
+        if "暂不建仓" in text:
+            return text
+        return "暂不建仓（severe 风险：建议仓位系数 0.00）"
+    note = f"风险压缩：建议仓位系数 {normalized:.2f}"
+    if note in text:
+        return text
+    return f"{text}（{note}）"
+
+
+def _default_position_size(signal: str, position_size_factor: Optional[float] = None) -> str:
     mapping = {
         "buy": "轻仓试仓",
         "hold": "控制仓位",
         "sell": "降仓防守",
     }
-    return mapping.get(signal, "控制仓位")
+    return _annotate_position_with_factor(
+        mapping.get(signal, "控制仓位"),
+        position_size_factor,
+    )
 
 
 def _normalize_operation_advice_value(value: Any, signal: str) -> str:

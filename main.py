@@ -716,6 +716,54 @@ def _run_auto_backtest(config: Config) -> None:
         logger.warning(f"自动回测失败（已忽略）: {exc}")
 
 
+def _run_outcome_scoring(config: Config) -> None:
+    """Run post-analysis outcome scoring without failing the analysis run.
+
+    每日分析完成后自动结算：
+    1. 决策信号后验评估（仅评估待结算信号，不做全量强制重算）；
+    2. 回测摘要刷新（backtest_enabled 时由 _run_auto_backtest 承担，避免重复执行）。
+    任一步骤失败仅记录日志，不影响分析主流程。
+    """
+    if not getattr(config, 'outcome_scoring_enabled', True):
+        return
+
+    try:
+        from src.services.decision_signal_outcome_service import DecisionSignalOutcomeService
+
+        logger.info("开始决策信号后验评估...")
+        outcome_stats = DecisionSignalOutcomeService().run_outcomes(limit=200)
+        logger.info(
+            f"决策信号后验评估完成: evaluated={outcome_stats.get('evaluated')} "
+            f"created={outcome_stats.get('created')} updated={outcome_stats.get('updated')} "
+            f"skipped={outcome_stats.get('skipped')} "
+            f"engine_version={outcome_stats.get('engine_version')}"
+        )
+    except Exception as exc:
+        logger.warning(f"决策信号后验评估失败（已忽略）: {exc}")
+
+    try:
+        # backtest_enabled 时 _run_auto_backtest 已完成回测与摘要刷新，避免重复跑。
+        if getattr(config, 'backtest_enabled', False):
+            return
+
+        from src.services.backtest_service import BacktestService
+
+        logger.info("开始回测摘要刷新...")
+        stats = BacktestService().run_backtest(
+            force=False,
+            eval_window_days=getattr(config, 'backtest_eval_window_days', 10),
+            min_age_days=getattr(config, 'backtest_min_age_days', 14),
+            limit=200,
+        )
+        logger.info(
+            f"回测摘要刷新完成: processed={stats.get('processed')} "
+            f"saved={stats.get('saved')} completed={stats.get('completed')} "
+            f"insufficient={stats.get('insufficient')} errors={stats.get('errors')}"
+        )
+    except Exception as exc:
+        logger.warning(f"回测摘要刷新失败（已忽略）: {exc}")
+
+
 def run_full_analysis(
     config: Config,
     args: argparse.Namespace,
@@ -744,6 +792,7 @@ def run_full_analysis(
             "本轮跳过个股分析和大盘复盘。"
         )
         _run_auto_backtest(config)
+        _run_outcome_scoring(config)
         return True
 
     # Import pipeline modules outside the broad try/except so that import-time
@@ -756,6 +805,7 @@ def run_full_analysis(
 
     def _return_with_auto_backtest(result: bool) -> bool:
         _run_auto_backtest(config)
+        _run_outcome_scoring(config)
         return result
 
     try:

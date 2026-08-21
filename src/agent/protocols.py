@@ -29,6 +29,13 @@ class Signal(str, Enum):
     STRONG_SELL = "strong_sell"
 
 
+# RiskAgent 的非方向性输出标记。风险评估只产出否决标志 / 仓位系数 / 风险
+# 提示，绝不作为方向性投票进入共识均值，因此该值刻意不属于 Signal 枚举，
+# 也不出现在任何 signal 别名映射中（normalize_strategy_signal 会将其判定为
+# invalid，从而自动被所有方向性聚合路径排除）。
+RISK_ASSESSMENT_SIGNAL = "risk_assessment"
+
+
 _CANONICAL_DECISION_SIGNAL_MAP: Dict[str, str] = {
     "strong_buy": "buy",
     "buy": "buy",

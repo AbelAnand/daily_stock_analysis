@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.config import Config
+from src.config import Config, get_config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE
 from src.repositories.backtest_repo import BacktestRepository
 from src.services.backtest_service import BacktestService
@@ -61,6 +61,7 @@ class BacktestServiceTestCase(unittest.TestCase):
                 "ENV_FILE",
                 "DATABASE_PATH",
                 "BACKTEST_EVAL_WINDOW_DAYS",
+                "BACKTEST_ENGINE_VERSION",
             )
         }
         self._env_path = os.path.join(self._temp_dir.name, ".env")
@@ -70,6 +71,11 @@ class BacktestServiceTestCase(unittest.TestCase):
         os.environ["ENV_FILE"] = self._env_path
         os.environ["DATABASE_PATH"] = self._db_path
         os.environ["BACKTEST_EVAL_WINDOW_DAYS"] = "3"
+        # 本用例集用 engine_version="v1" 播种历史行；配置默认已升级到 v2
+        # （benchmark_relative_symmetric_v1 计分），此处显式钉住 v1 保持
+        # "查询按当前引擎版本过滤" 的既有断言语义；v2 默认与重算行为见
+        # test_engine_version_default_v2_rescoring_candidates。
+        os.environ["BACKTEST_ENGINE_VERSION"] = "v1"
 
         Config._instance = None
         DatabaseManager.reset_instance()
@@ -89,6 +95,7 @@ class BacktestServiceTestCase(unittest.TestCase):
                     operation_advice="买入",
                     trend_prediction="看多",
                     analysis_summary="test",
+                    raw_result=json.dumps({"confidence_level": "高"}, ensure_ascii=False),
                     stop_loss=95.0,
                     take_profit=110.0,
                     created_at=old_created_at,
@@ -259,6 +266,47 @@ class BacktestServiceTestCase(unittest.TestCase):
             outcome="win",
             simulated_return_pct=1.0,
         )
+
+    def test_engine_version_default_v2_rescoring_candidates(self) -> None:
+        """默认引擎版本为 v2；v1 历史结果不会阻止同一分析在 v2 下重新计分。"""
+        os.environ.pop("BACKTEST_ENGINE_VERSION", None)
+        Config._instance = None
+        self.assertEqual(get_config().backtest_engine_version, "v2")
+
+        with self.db.get_session() as session:
+            analysis = session.query(AnalysisHistory).filter_by(query_id="q1").one()
+            analysis_id = analysis.id
+            session.add(
+                self._make_backtest_result(
+                    analysis_history_id=analysis_id,
+                    analysis_date=date(2024, 1, 1),
+                    eval_window_days=3,
+                    engine_version="v1",
+                )
+            )
+            session.commit()
+
+        repo = BacktestRepository(self.db)
+        # v1 视角：已有结果，非 force 不再作为候选。
+        v1_candidates = repo.get_candidates(
+            code="600519",
+            min_age_days=0,
+            limit=10,
+            eval_window_days=3,
+            engine_version="v1",
+            force=False,
+        )
+        self.assertNotIn(analysis_id, [c.id for c in v1_candidates])
+        # v2 视角：同一分析重新成为候选——版本升级触发重算而不是报错。
+        v2_candidates = repo.get_candidates(
+            code="600519",
+            min_age_days=0,
+            limit=10,
+            eval_window_days=3,
+            engine_version="v2",
+            force=False,
+        )
+        self.assertIn(analysis_id, [c.id for c in v2_candidates])
 
     def test_kr_suffix_filter_reaches_legacy_bare_history(self) -> None:
         self._seed_legacy_offshore_analysis(
@@ -2555,6 +2603,48 @@ class BacktestServiceTestCase(unittest.TestCase):
             self.assertEqual(stock.total_evaluations, 1)
             self.assertEqual(stock.completed_count, 1)
             self.assertEqual(stock.win_count, 1)
+
+    def test_summary_exposes_strict_accuracy_and_calibration_metrics(self) -> None:
+        """新增指标经 diagnostics_json.metrics_ext 持久化并在汇总/返回值中可见。"""
+        service = BacktestService(self.db)
+        stats = service.run_backtest(code="600519", force=False, eval_window_days=3, min_age_days=0, limit=10)
+
+        # run_backtest 返回值携带总体指标（--backtest CLI 输出来源）
+        overall_metrics = stats["overall_metrics"]
+        self.assertIsNotNone(overall_metrics)
+        self.assertEqual(overall_metrics["scoring_scheme"], "benchmark_relative_symmetric_v1")
+
+        summary = service.get_summary(scope="overall", code=None)
+        self.assertIsNotNone(summary)
+        # 严格口径: 1 win / 1 scored = 100%
+        self.assertEqual(summary["scored_count"], 1)
+        self.assertAlmostEqual(summary["strict_accuracy_pct"], 100.0)
+        # 按方向拆分: 买入(up) 1 胜
+        self.assertEqual(summary["direction_breakdown"]["up"]["win"], 1)
+        self.assertAlmostEqual(summary["direction_breakdown"]["up"]["strict_accuracy_pct"], 100.0)
+        # 校准: raw_result 置信度 "高" → 0.8；win → y=1；brier = (0.8-1)^2 = 0.04
+        calibration = summary["calibration"]
+        self.assertEqual(calibration["sample_count"], 1)
+        self.assertAlmostEqual(calibration["brier_score"], 0.04)
+        self.assertEqual(calibration["probability_source_counts"], {"confidence_level": 1})
+        table = calibration["reliability_table"]
+        self.assertEqual(len(table), 1)
+        self.assertEqual(table[0]["p_low"], 0.8)
+        self.assertAlmostEqual(table[0]["realized_hit_rate_pct"], 100.0)
+
+        # metrics_ext 附加于 diagnostics_json，未新增表列
+        with self.db.get_session() as session:
+            row = session.query(BacktestSummary).filter(
+                BacktestSummary.scope == "overall",
+                BacktestSummary.code == OVERALL_SENTINEL_CODE,
+            ).first()
+            stored_diagnostics = json.loads(row.diagnostics_json)
+            self.assertIn("metrics_ext", stored_diagnostics)
+            self.assertAlmostEqual(
+                stored_diagnostics["metrics_ext"]["strict_accuracy_pct"], 100.0
+            )
+        # 读取端不把 metrics_ext 重复暴露在 diagnostics 里
+        self.assertNotIn("metrics_ext", summary["diagnostics"])
 
     def test_get_summary_overall_returns_sentinel_as_none(self) -> None:
         """Verify get_summary translates __overall__ sentinel back to None."""

@@ -901,6 +901,23 @@ class AgentExecutor:
                 parts.append(f"\n[系统已获取的筹码分布]\n{json.dumps(context['chip_distribution'], ensure_ascii=False)}")
             if context.get("news_context"):
                 parts.append(f"\n[系统已获取的新闻与舆情情报]\n{context['news_context']}")
+            if context.get("computed_trade_levels"):
+                parts.append(
+                    "\n[系统计算参考位（ATR基准）]\n"
+                    "狙击点位请以下列系统参考位为锚定基准，偏离需给出明确理由；"
+                    "ev_contract 的 R 与 EV 必须按最终点位重新计算。\n"
+                    f"{json.dumps(context['computed_trade_levels'], ensure_ascii=False, default=str)}"
+                )
+            if context.get("track_record"):
+                parts.append(
+                    "\n[历史战绩（回测复盘口径，仅供校准 p_up，不得据此改变方向判断）]\n"
+                    f"{json.dumps(context['track_record'], ensure_ascii=False, default=str)}"
+                )
+            if context.get("earnings_calendar"):
+                parts.append(
+                    "\n[财报日历]\n"
+                    f"{json.dumps(context['earnings_calendar'], ensure_ascii=False, default=str)}"
+                )
 
         parts.append("\n请使用可用工具获取缺失的数据（如历史K线、新闻等），然后以决策仪表盘 JSON 格式输出分析结果。")
         return "\n".join(parts)

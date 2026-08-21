@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Helpers for parsing report sniper-point price values."""
+"""Helpers for parsing and validating report sniper-point price values."""
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 SNIPER_KEYS = ("ideal_buy", "secondary_buy", "stop_loss", "take_profit")
+
+# "$150.50" / "US$150.50" 前缀式美元价格
+_DOLLAR_PRICE_RE = re.compile(r"(?:US\$|\$)\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 
 
 def parse_sniper_value(value: Any) -> Optional[float]:
@@ -47,6 +51,16 @@ def parse_sniper_value(value: Any) -> Optional[float]:
                 return parsed if parsed > 0 else None
             except ValueError:
                 pass
+
+    # 美元前缀格式："$150.50"、"US$150.50"（价格跟在符号后面，与"元"后缀相反）
+    dollar_matches = _DOLLAR_PRICE_RE.findall(text)
+    if dollar_matches:
+        try:
+            parsed = float(dollar_matches[-1])
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            pass
 
     paren_pos = len(text)
     for paren_char in ("(", "（"):
@@ -121,3 +135,74 @@ def find_sniper_points(data: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
             return found
 
     return None
+
+
+def _finite_price(value: Any) -> Optional[float]:
+    """Normalize a price-like value: None/NaN/inf/non-positive -> None."""
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed) or parsed <= 0:
+        return None
+    return parsed
+
+
+def validate_levels(
+    entry: Any,
+    stop: Any,
+    target: Any,
+    *,
+    current_price: Any = None,
+    min_rr: float = 1.5,
+    max_distance_pct: float = 30.0,
+) -> Dict[str, Any]:
+    """
+    校验做多计划的价位几何关系（entry/stop/target 通常来自 LLM 输出）。
+
+    检查项：
+    - stop_not_below_entry: 止损 >= 入场价（风险无界）
+    - target_not_above_entry: 目标 <= 入场价（无盈利空间）
+    - poor_risk_reward: 盈亏比 (target-entry)/(entry-stop) < min_rr
+    - *_far_from_price: 价位偏离现价超过 max_distance_pct%（疑似臆造）
+
+    Returns:
+        {"valid": bool, "issues": [issue codes], "r_multiple": float | None}
+        缺失的价位不参与校验（只校验可校验的部分），绝不抛异常。
+    """
+    issues: List[str] = []
+    entry_f = _finite_price(entry)
+    stop_f = _finite_price(stop)
+    target_f = _finite_price(target)
+    price_f = _finite_price(current_price)
+
+    r_multiple: Optional[float] = None
+
+    if entry_f is not None and stop_f is not None and stop_f >= entry_f:
+        issues.append("stop_not_below_entry")
+    if entry_f is not None and target_f is not None and target_f <= entry_f:
+        issues.append("target_not_above_entry")
+
+    if (
+        entry_f is not None
+        and stop_f is not None
+        and target_f is not None
+        and stop_f < entry_f < target_f
+    ):
+        risk = entry_f - stop_f
+        if risk > 0:
+            r_multiple = round((target_f - entry_f) / risk, 4)
+            if r_multiple < min_rr:
+                issues.append("poor_risk_reward")
+
+    if price_f is not None and max_distance_pct > 0:
+        for name, level in (("entry", entry_f), ("stop", stop_f), ("target", target_f)):
+            if level is None:
+                continue
+            distance_pct = abs(level - price_f) / price_f * 100
+            if distance_pct > max_distance_pct:
+                issues.append(f"{name}_far_from_price")
+
+    return {"valid": not issues, "issues": issues, "r_multiple": r_multiple}

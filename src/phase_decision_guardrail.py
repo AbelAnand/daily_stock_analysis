@@ -172,18 +172,22 @@ def apply_phase_decision_guardrails(
         and _has_immediate_buy_sell_signal(result, phase_decision, language=language)
     )
     if has_non_intraday_action:
-        phase_decision["immediate_action"] = _safe_wait_action(language)
+        # "市场当前休市" ≠ "没有观点"：保留方向、价位与置信度，
+        # 只把执行动作改期到下一交易时段（不再降级置信度、不清空计划）。
+        phase_decision["immediate_action"] = _retimed_action_for_next_session(
+            language,
+            original_action=phase_decision.get("immediate_action"),
+            fallback_advice=getattr(result, "operation_advice", ""),
+            decision_type=getattr(result, "decision_type", ""),
+        )
         reason = _reason_text(
             language,
-            en="Current market phase does not support immediate intraday buy/sell action.",
-            zh="当前市场阶段不支持即时盘中买卖动作。",
-            ko="현재 시장 단계에서는 즉시 장중 매수/매도 동작을 지원하지 않습니다.",
+            en="Market is not in session; the directional plan is retimed to the next trading session.",
+            zh="当前非盘中阶段，方向性计划已改期至下一交易时段执行。",
+            ko="현재 장중이 아니므로 방향성 계획을 다음 거래 세션으로 이월했습니다.",
         )
         _append_reason(phase_decision, reason)
         adjustments.append("non_intraday_action_adjusted")
-        if initially_high_confidence:
-            result.confidence_level = localize_confidence_level("low", language)
-            adjustments.append("confidence_capped_non_intraday_action")
 
     if phase in INTRADAY_PHASES and _contains_postmarket_recap(result, phase_decision, language=language):
         reason = _reason_text(
@@ -390,16 +394,9 @@ def _adjustment_limitation_text(adjustment: str, *, language: str) -> str:
     if adjustment == "non_intraday_action_adjusted":
         return _reason_text(
             language,
-            en="non-intraday immediate action adjusted",
-            zh="非盘中阶段已修正即时买卖动作",
-            ko="비장중 단계의 즉시 매매 동작을 수정함",
-        )
-    if adjustment == "confidence_capped_non_intraday_action":
-        return _reason_text(
-            language,
-            en="confidence capped for non-intraday action",
-            zh="非盘中阶段已限制买卖置信度",
-            ko="비장중 단계 매매에 대해 신뢰도를 제한함",
+            en="immediate action retimed to the next trading session",
+            zh="非盘中阶段已将执行动作改期至下一交易时段",
+            ko="비장중 단계의 실행 동작을 다음 거래 세션으로 이월함",
         )
     if adjustment == "confidence_capped_core_data_degraded":
         return _reason_text(
@@ -409,6 +406,30 @@ def _adjustment_limitation_text(adjustment: str, *, language: str) -> str:
             ko="핵심 데이터 제한으로 신뢰도를 낮춤",
         )
     return adjustment
+
+
+def _retimed_action_for_next_session(
+    language: str,
+    *,
+    original_action: Any,
+    fallback_advice: Any,
+    decision_type: Any,
+) -> str:
+    """把即时买卖动作改期到下一交易时段，保留原方向与价位描述。"""
+    plan = _safe_text(original_action) or _safe_text(fallback_advice)
+    if not plan:
+        direction = _safe_text(decision_type).lower()
+        if direction == "buy":
+            plan = _reason_text(language, en="execute the buy plan", zh="执行买入计划", ko="매수 계획 실행")
+        elif direction == "sell":
+            plan = _reason_text(language, en="execute the sell plan", zh="执行卖出计划", ko="매도 계획 실행")
+        else:
+            plan = _reason_text(language, en="follow the stated plan", zh="按既定计划执行", ko="기존 계획대로 실행")
+    if language == "en":
+        return f"Execute at the next trading session per plan: {plan}"
+    if language == "ko":
+        return f"다음 거래 세션에 계획대로 실행: {plan}"
+    return f"下一交易时段按计划执行：{plan}"
 
 
 def _safe_wait_action(language: str) -> str:

@@ -12,7 +12,13 @@ from sqlalchemy import and_, select
 
 from data_provider.base import canonical_stock_code, normalize_stock_code
 from src.config import get_config
-from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, EvaluationConfig
+from src.core.backtest_engine import (
+    OVERALL_SENTINEL_CODE,
+    SCORING_SCHEME,
+    BacktestEngine,
+    EvaluationConfig,
+    confidence_level_to_probability,
+)
 from src.market_phase_summary import (
     extract_market_phase_summary,
     normalize_analysis_phase_bucket,
@@ -26,7 +32,7 @@ from src.services.stock_code_utils import (
 )
 from src.services.stock_daily_start_resolver import resolve_stock_daily_start
 from src.services.stock_daily_window_resolver import resolve_stock_daily_window
-from src.storage import BacktestResult, BacktestSummary, DatabaseManager
+from src.storage import AnalysisHistory, BacktestResult, BacktestSummary, DatabaseManager
 from src.utils.data_processing import parse_json_field
 
 logger = logging.getLogger(__name__)
@@ -297,6 +303,13 @@ class BacktestService:
             aligned_existing_result_dates=aligned_existing_result_dates,
         )
 
+        overall_metrics = self._load_overall_metrics(
+            eval_window_days=int(eval_window_days),
+            engine_version=str(engine_version),
+        )
+        if overall_metrics is not None:
+            self._log_overall_metrics(overall_metrics)
+
         return {
             "processed": processed,
             "saved": saved,
@@ -306,6 +319,7 @@ class BacktestService:
             "applied_eval_window_days": int(eval_window_days),
             "message": diagnostics.get("message"),
             "diagnostics": diagnostics,
+            "overall_metrics": overall_metrics,
         }
 
     def _get_run_candidates(
@@ -864,13 +878,17 @@ class BacktestService:
                     )
                 )
             ).scalars().all()
+            probabilities, probability_source_counts = self._call_probabilities(session, overall_rows)
             overall_data = BacktestEngine.compute_summary(
                 results=overall_rows,
                 scope="overall",
                 code=OVERALL_SENTINEL_CODE,
                 eval_window_days=eval_window_days,
                 engine_version=engine_version,
+                probabilities=probabilities,
             )
+            if isinstance(overall_data.get("calibration"), dict):
+                overall_data["calibration"]["probability_source_counts"] = probability_source_counts
             overall_summary = self._build_summary_model(overall_data)
             self.repo.upsert_summary(overall_summary)
 
@@ -895,12 +913,223 @@ class BacktestService:
                     code=normalized_code,
                     eval_window_days=eval_window_days,
                     engine_version=engine_version,
+                    probabilities=probabilities,
                 )
                 summary = self._build_summary_model(data)
                 self.repo.upsert_summary(summary)
 
+    def _load_overall_metrics(
+        self,
+        *,
+        eval_window_days: int,
+        engine_version: str,
+    ) -> Optional[Dict[str, Any]]:
+        """读取当前窗口/引擎版本下的总体汇总指标（含新增严格准确率与校准指标）。"""
+        try:
+            summary = self.repo.get_summary(
+                scope="overall",
+                code=OVERALL_SENTINEL_CODE,
+                eval_window_days=eval_window_days,
+                engine_version=engine_version,
+            )
+        except Exception as exc:
+            logger.warning(f"读取回测总体汇总失败: {exc}")
+            return None
+        if summary is None:
+            return None
+        return self._summary_to_dict(summary)
+
     @staticmethod
-    def _build_summary_model(summary_data: Dict[str, Any]) -> BacktestSummary:
+    def _log_overall_metrics(metrics: Dict[str, Any]) -> None:
+        """在 --backtest CLI 输出中展示总体指标：严格准确率、Brier、可靠性表、按方向拆分。"""
+        lines = [
+            "回测总体表现 (窗口={}d, engine={}, scoring={}):".format(
+                metrics.get("eval_window_days"),
+                metrics.get("engine_version"),
+                metrics.get("scoring_scheme") or SCORING_SCHEME,
+            ),
+            "  严格准确率(neutral计入分母): {} | win={} loss={} neutral={} scored={}".format(
+                BacktestService._fmt_pct(metrics.get("strict_accuracy_pct")),
+                metrics.get("win_count"),
+                metrics.get("loss_count"),
+                metrics.get("neutral_count"),
+                metrics.get("scored_count"),
+            ),
+            "  传统胜率 win/(win+loss): {} | 方向准确率(legacy): {}".format(
+                BacktestService._fmt_pct(metrics.get("win_rate_pct")),
+                BacktestService._fmt_pct(metrics.get("direction_accuracy_pct")),
+            ),
+        ]
+
+        calibration = metrics.get("calibration")
+        if isinstance(calibration, dict):
+            lines.append(
+                "  Brier分数: {} (样本={})".format(
+                    calibration.get("brier_score") if calibration.get("brier_score") is not None else "N/A",
+                    calibration.get("sample_count"),
+                )
+            )
+            table = calibration.get("reliability_table")
+            if isinstance(table, list) and table:
+                cells = [
+                    "p[{},{}): 预测{} 实际{} n={}".format(
+                        bucket.get("p_low"),
+                        bucket.get("p_high"),
+                        bucket.get("avg_predicted"),
+                        BacktestService._fmt_pct(bucket.get("realized_hit_rate_pct")),
+                        bucket.get("count"),
+                    )
+                    for bucket in table
+                ]
+                lines.append("  可靠性表: " + " | ".join(cells))
+
+        direction_breakdown = metrics.get("direction_breakdown")
+        if isinstance(direction_breakdown, dict) and direction_breakdown:
+            label_map = {
+                "up": "买入(up)",
+                "not_down": "持有(not_down)",
+                "flat": "观望(flat)",
+                "down": "卖出(down)",
+            }
+            cells = []
+            for direction in ("up", "not_down", "flat", "down"):
+                bucket = direction_breakdown.get(direction)
+                if not isinstance(bucket, dict):
+                    continue
+                cells.append(
+                    "{}: 严格{} 胜率{} n={}".format(
+                        label_map.get(direction, direction),
+                        BacktestService._fmt_pct(bucket.get("strict_accuracy_pct")),
+                        BacktestService._fmt_pct(bucket.get("win_rate_pct")),
+                        bucket.get("total"),
+                    )
+                )
+            for direction, bucket in direction_breakdown.items():
+                if direction in label_map or not isinstance(bucket, dict):
+                    continue
+                cells.append(
+                    "{}: 严格{} 胜率{} n={}".format(
+                        direction,
+                        BacktestService._fmt_pct(bucket.get("strict_accuracy_pct")),
+                        BacktestService._fmt_pct(bucket.get("win_rate_pct")),
+                        bucket.get("total"),
+                    )
+                )
+            if cells:
+                lines.append("  按建议方向: " + " | ".join(cells))
+
+        logger.info("\n".join(lines))
+
+    @staticmethod
+    def _fmt_pct(value: Any) -> str:
+        if value is None:
+            return "N/A"
+        try:
+            return f"{float(value):.2f}%"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    @classmethod
+    def _call_probabilities(
+        cls,
+        session,
+        rows: List[BacktestResult],
+    ) -> Tuple[Dict[int, float], Dict[str, int]]:
+        """为回测结果行构建 {analysis_history_id: 预测概率} 映射（用于校准指标）。
+
+        概率来源优先级：
+        1. 分析输出 raw_result 中的数值 p_up（0~1，未来由分析端写入，可能位于顶层
+           或 metadata / decision_signal 子对象内）。p_up 表示“上涨概率”，
+           对多头立场（up/not_down）即为该建议正确的概率；对空仓立场
+           （down/flat/not_up）取 1 - p_up 作为建议正确的概率；
+        2. 回退到 confidence_level（高/中/低 → 0.8/0.6/0.4，与
+           decision_signal_extractor 的映射一致，本身即“建议正确”的置信概率）。
+        同时返回各概率来源的样本计数，写入校准指标便于观察数据覆盖情况。
+        """
+        ids = sorted({
+            int(row.analysis_history_id)
+            for row in rows
+            if getattr(row, "analysis_history_id", None) is not None
+        })
+        raw_by_id: Dict[int, Any] = {}
+        chunk_size = 500
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start:start + chunk_size]
+            pairs = session.execute(
+                select(AnalysisHistory.id, AnalysisHistory.raw_result).where(
+                    AnalysisHistory.id.in_(chunk)
+                )
+            ).all()
+            for history_id, raw_result in pairs:
+                raw_by_id[int(history_id)] = raw_result
+
+        probabilities: Dict[int, float] = {}
+        source_counts: Dict[str, int] = {}
+        for row in rows:
+            history_id = getattr(row, "analysis_history_id", None)
+            if history_id is None or int(history_id) not in raw_by_id:
+                continue
+            history_id = int(history_id)
+            if history_id in probabilities:
+                continue
+            probability, source = cls._extract_call_probability(raw_by_id[history_id])
+            if probability is None:
+                continue
+            if source == "p_up":
+                direction = str(getattr(row, "direction_expected", None) or "").strip()
+                if direction in ("up", "not_down"):
+                    pass  # 多头立场：p_up 即建议正确概率
+                elif direction in ("down", "flat", "not_up"):
+                    probability = 1.0 - probability
+                else:
+                    continue  # 方向未知时无法解释 p_up，跳过
+            probabilities[history_id] = probability
+            source_counts[source] = source_counts.get(source, 0) + 1
+        return probabilities, source_counts
+
+    @staticmethod
+    def _extract_call_probability(raw_result: Any) -> Tuple[Optional[float], Optional[str]]:
+        """从分析 raw_result 中提取预测概率：优先数值 p_up，回退置信度映射。"""
+        parsed = parse_json_field(raw_result)
+        if not isinstance(parsed, dict):
+            return None, None
+
+        for container in (parsed, parsed.get("dashboard"), parsed.get("metadata"), parsed.get("decision_signal")):
+            if not isinstance(container, dict):
+                continue
+            raw_p_up = container.get("p_up")
+            if raw_p_up is None:
+                continue
+            try:
+                p_up = float(raw_p_up)
+            except (TypeError, ValueError):
+                continue
+            if 1.0 < p_up <= 100.0:
+                p_up = p_up / 100.0  # 兼容分析端 0-100 百分比写法
+            if 0.0 <= p_up <= 1.0:
+                return p_up, "p_up"
+
+        mapped = confidence_level_to_probability(parsed.get("confidence_level"))
+        if mapped is not None:
+            return mapped, "confidence_level"
+        return None, None
+
+    # 新增指标以附加 JSON 形式存入 diagnostics_json（避免修改 backtest_summaries 表结构）
+    _METRICS_EXT_KEYS = (
+        "scoring_scheme",
+        "scored_count",
+        "strict_accuracy_pct",
+        "direction_breakdown",
+        "calibration",
+    )
+
+    @classmethod
+    def _build_summary_model(cls, summary_data: Dict[str, Any]) -> BacktestSummary:
+        diagnostics = summary_data.get("diagnostics")
+        diagnostics = dict(diagnostics) if isinstance(diagnostics, dict) else {}
+        diagnostics["metrics_ext"] = {
+            key: summary_data.get(key) for key in cls._METRICS_EXT_KEYS
+        }
         return BacktestSummary(
             scope=summary_data.get("scope"),
             code=summary_data.get("code"),
@@ -925,7 +1154,7 @@ class BacktestService:
             ambiguous_rate=summary_data.get("ambiguous_rate"),
             avg_days_to_first_hit=summary_data.get("avg_days_to_first_hit"),
             advice_breakdown_json=json.dumps(summary_data.get("advice_breakdown") or {}, ensure_ascii=False),
-            diagnostics_json=json.dumps(summary_data.get("diagnostics") or {}, ensure_ascii=False),
+            diagnostics_json=json.dumps(diagnostics, ensure_ascii=False),
         )
 
     @staticmethod
@@ -993,9 +1222,17 @@ class BacktestService:
             "simulated_return_pct": row.simulated_return_pct,
         }
 
-    @staticmethod
-    def _summary_to_dict(row: BacktestSummary) -> Dict[str, Any]:
+    @classmethod
+    def _summary_to_dict(cls, row: BacktestSummary) -> Dict[str, Any]:
+        diagnostics = json.loads(row.diagnostics_json) if row.diagnostics_json else {}
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        metrics_ext = diagnostics.pop("metrics_ext", None)
+        if not isinstance(metrics_ext, dict):
+            metrics_ext = {}
         return {
+            # 新增指标（旧汇总行缺少 metrics_ext 时为 None）
+            **{key: metrics_ext.get(key) for key in cls._METRICS_EXT_KEYS},
             "scope": row.scope,
             "code": None if row.code == OVERALL_SENTINEL_CODE else row.code,
             "eval_window_days": row.eval_window_days,
@@ -1019,7 +1256,7 @@ class BacktestService:
             "ambiguous_rate": row.ambiguous_rate,
             "avg_days_to_first_hit": row.avg_days_to_first_hit,
             "advice_breakdown": json.loads(row.advice_breakdown_json) if row.advice_breakdown_json else {},
-            "diagnostics": json.loads(row.diagnostics_json) if row.diagnostics_json else {},
+            "diagnostics": diagnostics,
         }
 
     @staticmethod
@@ -1032,6 +1269,11 @@ class BacktestService:
         normalized["win_rate"] = BacktestService._pct_to_ratio(summary.get("win_rate_pct"), default=0.5)
         normalized["direction_accuracy"] = BacktestService._pct_to_ratio(
             summary.get("direction_accuracy_pct"),
+            default=0.5,
+        )
+        # 严格口径（neutral 计入分母）；旧汇总行无该指标时保持中性 0.5
+        normalized["strict_accuracy"] = BacktestService._pct_to_ratio(
+            summary.get("strict_accuracy_pct"),
             default=0.5,
         )
 

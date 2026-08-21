@@ -283,7 +283,8 @@ def test_orchestrator_returns_internal_facts_without_public_dashboard_fields():
     assert core["signal_type"] == "🟡持有观望"
     assert "风险未解除" in core["position_advice"]["no_position"]
     strategy = result.dashboard["dashboard"]["battle_plan"]["position_strategy"]
-    assert strategy["suggested_position"] == "控制仓位"
+    # 风控 veto（severe）后建议仓位按 position_size_factor=0 归零
+    assert strategy["suggested_position"] == "暂不建仓（severe 风险：建议仓位系数 0.00）"
     assert strategy["entry_plan"] == core["position_advice"]["no_position"]
     assert "buy on pullback" not in json.dumps(result.dashboard, ensure_ascii=False)
     decision_opinion = next(

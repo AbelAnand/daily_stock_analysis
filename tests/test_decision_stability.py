@@ -101,7 +101,11 @@ def test_downgrades_buy_near_resistance_without_fund_confirmation() -> None:
     )
 
     assert result.decision_type == "hold"
-    assert result.sentiment_score <= 59
+    # 守门只调整措辞与元数据，评分保留模型原值
+    assert result.sentiment_score == 65
+    calibration = result.dashboard["decision_score_calibration"]
+    assert calibration["raw_score"] == 65
+    assert calibration["adjusted_score"] == 65
     assert result.operation_advice == "震荡观望"
     assert result.dashboard["decision_stability"]["applied"] is True
     assert "不宜仅因短线反弹追买" in result.risk_warning
@@ -123,12 +127,13 @@ def test_downgrades_buy_mid_range_with_neutral_fund_flow() -> None:
     )
 
     assert result.decision_type == "hold"
-    assert result.sentiment_score <= 59
+    assert result.sentiment_score == 66
     assert result.operation_advice == "震荡观望"
     assert "资金流不明确" in result.risk_warning
 
 
-def test_downgrades_buy_when_capital_flow_is_unavailable() -> None:
+def test_keeps_buy_when_capital_flow_market_is_unsupported() -> None:
+    """美股/港股/台股等市场资金流结构性不可用时，买入结论必须可以正常输出。"""
     buy_result = _result(
         decision_type="buy",
         operation_advice="买入",
@@ -154,20 +159,23 @@ def test_downgrades_buy_when_capital_flow_is_unavailable() -> None:
         _unsupported_fund_flow(),
     )
 
-    assert buy_result.decision_type == "hold"
-    assert buy_result.operation_advice == "持有观察"
-    assert buy_result.confidence_level == "低"
-    assert buy_result.sentiment_score <= 59
-    assert buy_result.dashboard["decision_stability"]["applied"] is True
-    assert "买入结论缺少资金面确认" in buy_result.dashboard["decision_stability"]["reason"]
-    assert buy_result.dashboard["core_conclusion"]["signal_type"] == "🟡持有观望"
+    # 买入保留：资金流缺失是"证据缺失"，只做元数据标注
+    assert buy_result.decision_type == "buy"
+    assert buy_result.operation_advice == "买入"
+    assert buy_result.confidence_level == "中"
+    assert buy_result.sentiment_score == 66
+    stability = buy_result.dashboard["decision_stability"]
+    assert stability["applied"] is False
+    assert stability["capital_flow_market_supported"] is False
+    assert "资金面确认缺失" in stability["reason"]
+    # 卖出同样不受影响
     assert sell_result.decision_type == "sell"
     assert sell_result.operation_advice == "卖出"
     assert sell_result.dashboard["decision_stability"]["applied"] is False
-    assert "未使用资金流校准" in sell_result.dashboard["decision_stability"]["reason"]
 
 
-def test_downgrades_buy_when_capital_flow_values_are_na() -> None:
+def test_annotates_buy_when_capital_flow_values_are_na() -> None:
+    """市场支持资金流但数据抓取失败：同样标注而非否决买入。"""
     result = _result(
         decision_type="buy",
         operation_advice="买入",
@@ -192,13 +200,16 @@ def test_downgrades_buy_when_capital_flow_values_are_na() -> None:
         },
     )
 
-    assert result.decision_type == "hold"
-    assert result.operation_advice == "持有观察"
-    assert result.dashboard["decision_stability"]["applied"] is True
-    assert "资金流数据缺失" in result.dashboard["decision_stability"]["capital_flow_status"]
+    assert result.decision_type == "buy"
+    assert result.operation_advice == "买入"
+    assert result.sentiment_score == 66
+    stability = result.dashboard["decision_stability"]
+    assert stability["applied"] is False
+    assert stability["capital_flow_market_supported"] is True
+    assert "资金流数据缺失" in stability["capital_flow_status"]
 
 
-def test_downgrades_buy_advice_when_decision_type_is_hold_and_capital_flow_unavailable() -> None:
+def test_keeps_hold_buy_advice_when_capital_flow_unavailable() -> None:
     result = _result(
         decision_type="hold",
         operation_advice="建议买入",
@@ -212,14 +223,14 @@ def test_downgrades_buy_advice_when_decision_type_is_hold_and_capital_flow_unava
         _unsupported_fund_flow(),
     )
 
+    # 无突破结构时不升级，也不再强制改写为"持有观察"
     assert result.decision_type == "hold"
-    assert result.operation_advice == "持有观察"
-    assert result.sentiment_score <= 59
-    assert result.dashboard["decision_stability"]["applied"] is True
-    assert "买入结论缺少资金面确认" in result.dashboard["decision_stability"]["reason"]
+    assert result.operation_advice == "建议买入"
+    assert result.sentiment_score == 68
+    assert result.dashboard["decision_stability"]["applied"] is False
 
 
-def test_downgrades_buy_when_capital_flow_status_is_unavailable_case_insensitive() -> None:
+def test_keeps_buy_when_capital_flow_status_is_unavailable_case_insensitive() -> None:
     buy_result = _result(
         decision_type="buy",
         operation_advice="买入",
@@ -233,9 +244,9 @@ def test_downgrades_buy_when_capital_flow_status_is_unavailable_case_insensitive
         _unsupported_fund_flow_caps(),
     )
 
-    assert buy_result.decision_type == "hold"
-    assert buy_result.operation_advice == "持有观察"
-    assert buy_result.dashboard["decision_stability"]["applied"] is True
+    assert buy_result.decision_type == "buy"
+    assert buy_result.operation_advice == "买入"
+    assert buy_result.dashboard["decision_stability"]["applied"] is False
     assert "暂不支持" in str(buy_result.dashboard["decision_stability"]["capital_flow_status"])
 
 
@@ -296,7 +307,7 @@ def test_downgrades_sell_near_support_without_sustained_outflow() -> None:
     )
 
     assert result.decision_type == "hold"
-    assert result.sentiment_score >= 45
+    assert result.sentiment_score == 30
     assert result.operation_advice == "洗盘观察"
     assert "不宜仅因单日下跌直接卖出" in result.risk_warning
 
@@ -340,3 +351,165 @@ def test_refines_hold_pullback_near_support_as_shakeout_watch() -> None:
     assert result.decision_type == "hold"
     assert result.operation_advice == "洗盘观察"
     assert "更适合按洗盘观察处理" in result.risk_warning
+
+
+def _with_volume(result, ratio: float = 1.9, status: str = "放量"):
+    result.dashboard["data_perspective"]["volume_analysis"] = {
+        "volume_ratio": ratio,
+        "volume_status": status,
+    }
+    return result
+
+
+def test_promotes_hold_to_buy_on_confirmed_breakout_with_inflow() -> None:
+    result = _with_volume(
+        _result(
+            decision_type="hold",
+            operation_advice="观望",
+            score=58,
+            current_price=34.5,
+            change_pct=3.2,
+        )
+    )
+
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _fund_flow(main=2_000_000, five_day=3_000_000),
+    )
+
+    assert result.decision_type == "buy"
+    assert result.operation_advice == "买入"
+    # 升级只改方向与措辞，不改写评分
+    assert result.sentiment_score == 58
+    stability = result.dashboard["decision_stability"]
+    assert stability["applied"] is True
+    assert stability["promotion"] is True
+    assert stability["reason_key"] == "hold_breakout_promotion"
+    assert result.dashboard["core_conclusion"]["signal_type"] == "🟢买入信号"
+
+
+def test_promotes_hold_to_buy_on_breakout_when_market_lacks_capital_flow() -> None:
+    """无资金流市场（美/港/台）：量价结构即可触发升级。"""
+    result = _with_volume(
+        _result(
+            decision_type="hold",
+            operation_advice="观望",
+            score=60,
+            current_price=34.6,
+            change_pct=2.5,
+        )
+    )
+
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _unsupported_fund_flow(),
+    )
+
+    assert result.decision_type == "buy"
+    assert result.operation_advice == "买入"
+    assert result.dashboard["decision_stability"]["promotion"] is True
+
+
+def test_does_not_promote_hold_to_buy_without_volume_confirmation() -> None:
+    result = _result(
+        decision_type="hold",
+        operation_advice="观望",
+        score=58,
+        current_price=34.5,
+        change_pct=3.2,
+    )
+
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _fund_flow(main=2_000_000, five_day=3_000_000),
+    )
+
+    assert result.decision_type == "hold"
+
+
+def test_does_not_promote_hold_to_buy_when_flow_is_neutral() -> None:
+    result = _with_volume(
+        _result(
+            decision_type="hold",
+            operation_advice="观望",
+            score=58,
+            current_price=34.5,
+            change_pct=3.2,
+        )
+    )
+
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _fund_flow(main=0, five_day=0, ten_day=0),
+    )
+
+    assert result.decision_type == "hold"
+
+
+def test_promotes_hold_to_sell_on_support_break_with_outflow() -> None:
+    result = _result(
+        decision_type="hold",
+        operation_advice="持有",
+        score=42,
+        current_price=29.3,
+        change_pct=-3.5,
+    )
+
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _fund_flow(main=-2_000_000, five_day=-3_000_000),
+    )
+
+    assert result.decision_type == "sell"
+    assert result.operation_advice == "卖出"
+    assert result.sentiment_score == 42
+    stability = result.dashboard["decision_stability"]
+    assert stability["promotion"] is True
+    assert stability["reason_key"] == "hold_support_break_promotion"
+    assert result.dashboard["core_conclusion"]["signal_type"] == "🔴卖出信号"
+
+
+def test_promotes_hold_to_sell_on_support_break_with_volume_when_flow_unavailable() -> None:
+    result = _with_volume(
+        _result(
+            decision_type="hold",
+            operation_advice="持有",
+            score=40,
+            current_price=29.3,
+            change_pct=-4.0,
+        )
+    )
+
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _unsupported_fund_flow(),
+    )
+
+    assert result.decision_type == "sell"
+    assert result.dashboard["decision_stability"]["promotion"] is True
+
+
+def test_does_not_promote_hold_to_sell_when_flow_is_inflow() -> None:
+    result = _with_volume(
+        _result(
+            decision_type="hold",
+            operation_advice="持有",
+            score=42,
+            current_price=29.3,
+            change_pct=-3.5,
+        )
+    )
+
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _fund_flow(main=2_000_000, five_day=1_000_000),
+    )
+
+    assert result.decision_type == "hold"

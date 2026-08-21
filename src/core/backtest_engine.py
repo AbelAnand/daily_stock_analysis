@@ -11,10 +11,33 @@ from dataclasses import dataclass
 from datetime import date
 import math
 import re
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Tuple
 
 
 OVERALL_SENTINEL_CODE = "__overall__"
+
+# 结果打分方案标识：基准对称打分（以“空仓不动”为基准，多头/空仓立场对称使用同一 band）。
+SCORING_SCHEME = "benchmark_relative_symmetric_v1"
+
+# 置信度文本 → 概率 映射。
+# 注意：与 src/services/decision_signal_extractor._CONFIDENCE_MAP 保持一致
+# （extractor 依赖 analyzer 等重模块，回测引擎需保持 DB/LLM 无关，故在此镜像一份；
+# tests/test_backtest_calibration.py 中有同步校验测试）。
+CONFIDENCE_LEVEL_PROBABILITY = {
+    "高": 0.8,
+    "high": 0.8,
+    "中": 0.6,
+    "medium": 0.6,
+    "mid": 0.6,
+    "低": 0.4,
+    "low": 0.4,
+}
+
+
+def confidence_level_to_probability(value: Any) -> Optional[float]:
+    """将 高/中/低 等置信度文本映射为概率；无法识别时返回 None。"""
+    key = str(value or "").strip().lower()
+    return CONFIDENCE_LEVEL_PROBABILITY.get(key)
 
 
 class DailyBarLike(Protocol):
@@ -372,8 +395,21 @@ class BacktestEngine:
         code: Optional[str],
         eval_window_days: int,
         engine_version: str,
+        probabilities: Optional[Mapping[Any, float]] = None,
     ) -> Dict[str, Any]:
-        """Aggregate BacktestResult rows into summary metrics."""
+        """Aggregate BacktestResult rows into summary metrics.
+
+        指标口径说明：
+        - direction_accuracy_pct / win_rate_pct（legacy）：分母只含 win+loss，
+          neutral（含对冲/观望型建议）被排除，保留以兼容旧看板。
+        - strict_accuracy_pct（新增）：win / (win+loss+neutral)，neutral 计入分母，
+          对冲不再免费提升整体准确率。
+        - direction_breakdown（新增）：按 direction_expected（up/not_down/flat/down）
+          分组的命中统计，用于观察“对冲型”建议的占比与表现。
+        - calibration（新增，需传入 probabilities）：Brier 分数 + 可靠性表。
+          probabilities 为 {analysis_history_id: 预测概率} 映射，概率取分析输出中的
+          数值 p_up（若有），否则回退到 高/中/低 置信度映射（0.8/0.6/0.4）。
+        """
         results_list = list(results)
 
         total = len(results_list)
@@ -396,6 +432,10 @@ class BacktestEngine:
         win_loss_denominator = win_count + loss_count
         win_rate_pct = round(win_count / win_loss_denominator * 100, 2) if win_loss_denominator else None
         neutral_rate_pct = round(neutral_count / len(completed) * 100, 2) if completed else None
+
+        # 严格口径：neutral 计入分母（对冲/观望不再被排除在问责之外）
+        scored_count = win_count + loss_count + neutral_count
+        strict_accuracy_pct = round(win_count / scored_count * 100, 2) if scored_count else None
 
         avg_stock_return_pct = cls._average([r.stock_return_pct for r in completed])
         avg_simulated_return_pct = cls._average([r.simulated_return_pct for r in completed])
@@ -450,7 +490,23 @@ class BacktestEngine:
         )
 
         advice_breakdown = cls._compute_advice_breakdown(completed)
+        direction_breakdown = cls._compute_direction_breakdown(completed)
         diagnostics = cls._compute_diagnostics(results_list)
+
+        calibration: Optional[Dict[str, Any]] = None
+        if probabilities is not None:
+            calls = []
+            for r in completed:
+                if (r.outcome or "") not in ("win", "loss", "neutral"):
+                    continue
+                key = getattr(r, "analysis_history_id", None)
+                if key is None:
+                    continue
+                probability = probabilities.get(key)
+                if probability is None:
+                    continue
+                calls.append((probability, r.direction_correct))
+            calibration = cls.compute_calibration(calls)
 
         return {
             "scope": scope,
@@ -476,6 +532,12 @@ class BacktestEngine:
             "avg_days_to_first_hit": avg_days_to_first_hit,
             "advice_breakdown": advice_breakdown,
             "diagnostics": diagnostics,
+            # 新增指标（保留旧字段，不复用旧名）
+            "scoring_scheme": SCORING_SCHEME,
+            "scored_count": scored_count,
+            "strict_accuracy_pct": strict_accuracy_pct,
+            "direction_breakdown": direction_breakdown,
+            "calibration": calibration,
         }
 
     @staticmethod
@@ -599,6 +661,10 @@ class BacktestEngine:
             return True
         return compact in cls._NEGATION_CONNECTOR_WORDS
 
+    # 多头立场（继续持有敞口的建议）与空仓立场（放弃敞口的建议）。
+    _LONG_STANCE_DIRECTIONS = frozenset({"up", "not_down"})
+    _CASH_STANCE_DIRECTIONS = frozenset({"down", "flat", "not_up"})
+
     @classmethod
     def _classify_outcome(
         cls,
@@ -607,37 +673,45 @@ class BacktestEngine:
         direction_expected: str,
         neutral_band_pct: float,
     ) -> tuple[Optional[str], Optional[bool]]:
+        """基准对称打分（SCORING_SCHEME = benchmark_relative_symmetric_v1）。
+
+        以“空仓不动（abstain）”作为收益基准，衡量每个建议相对基准的价值。
+        统一规则（band = |neutral_band_pct|，r = 窗口收益率%）：
+
+        - 多头立场（direction_expected ∈ {up, not_down}，即 买入/持有）：
+          r >= +band → win；r <= -band → loss；|r| < band → neutral。
+        - 空仓立场（direction_expected ∈ {down, flat}，即 卖出/观望）：
+          r <= -band → win（成功规避超过 band 的下跌）；
+          r >= +band → loss（踏空超过 band 的上涨，机会成本计为失误）；
+          |r| < band → neutral。
+
+        与旧版（非对称）方案的区别：
+        - 持有(not_down)不再“r >= 0 即胜”，与买入使用相同的 +band 胜利门槛；
+        - 观望(flat)不再因“什么都没发生”(|r| <= band) 免费得胜，改计 neutral；
+          且踏空 > band 的上涨记为 loss，规避 > band 的下跌记为 win。
+
+        neutral 仍返回 direction_correct=None（供 legacy win/(win+loss) 口径使用）；
+        compute_summary 中新增的 strict_accuracy_pct 会把 neutral 计入分母。
+        """
         if stock_return_pct is None:
             return None, None
 
         band = abs(float(neutral_band_pct))
         r = float(stock_return_pct)
 
-        if direction_expected == "up":
+        if direction_expected in cls._LONG_STANCE_DIRECTIONS:
             if r >= band:
                 return "win", True
             if r <= -band:
                 return "loss", False
             return "neutral", None
 
-        if direction_expected == "down":
-            if r <= -band:
-                return "win", True
-            if r >= band:
-                return "loss", False
-            return "neutral", None
-
-        if direction_expected == "not_down":
-            if r >= 0:
-                return "win", True
-            if r <= -band:
-                return "loss", False
-            return "neutral", None
-
-        # flat
-        if abs(r) <= band:
+        # 空仓立场（down/flat 及未识别方向，与 infer_position_recommendation 的 cash 默认一致）
+        if r <= -band:
             return "win", True
-        return "loss", False
+        if r >= band:
+            return "loss", False
+        return "neutral", None
 
     @classmethod
     def _classify_signal_outcome(
@@ -647,30 +721,33 @@ class BacktestEngine:
         direction_expected: str,
         neutral_band_pct: float,
     ) -> tuple[Optional[str], Optional[bool]]:
+        """DecisionSignal 版基准对称打分，规则与 _classify_outcome 相同。
+
+        - up / not_down（buy、add / hold）：r >= +band → hit；r <= -band → miss；否则 neutral。
+        - not_up（sell、reduce、avoid）：r <= -band → hit；r >= +band → miss；否则 neutral。
+
+        与旧版的区别：not_down 不再“r >= 0 即 hit”；not_up 不再“r <= +band 即 hit”
+        （原方案下横盘也算 hit），横盘一律记 neutral。
+        """
         if stock_return_pct is None:
             return None, None
 
         band = abs(float(neutral_band_pct))
         r = float(stock_return_pct)
 
-        if direction_expected == "up":
+        if direction_expected in ("up", "not_down"):
             if r >= band:
                 return "hit", True
             if r <= -band:
                 return "miss", False
             return "neutral", None
 
-        if direction_expected == "not_down":
-            if r >= 0:
-                return "hit", True
+        if direction_expected == "not_up":
             if r <= -band:
+                return "hit", True
+            if r >= band:
                 return "miss", False
             return "neutral", None
-
-        if direction_expected == "not_up":
-            if r <= band:
-                return "hit", True
-            return "miss", False
 
         return None, None
 
@@ -802,8 +879,102 @@ class BacktestEngine:
             loss = bucket["loss"]
             denom = win + loss
             win_rate = round(win / denom * 100, 2) if denom else None
-            enriched[advice] = {**bucket, "win_rate_pct": win_rate}
+            scored = win + loss + bucket["neutral"]
+            strict_accuracy = round(win / scored * 100, 2) if scored else None
+            enriched[advice] = {
+                **bucket,
+                "win_rate_pct": win_rate,
+                "strict_accuracy_pct": strict_accuracy,
+            }
         return enriched
+
+    @staticmethod
+    def _compute_direction_breakdown(results: List[BacktestResultLike]) -> Dict[str, Any]:
+        """按 direction_expected 分组统计命中情况（up/not_down/flat/down）。
+
+        用于让“对冲型”建议（hold→not_down、观望→flat）的表现单独可见，
+        而不是混在整体胜率里。
+        """
+        breakdown: Dict[str, Dict[str, int]] = {}
+        for row in results:
+            direction = str(getattr(row, "direction_expected", None) or "").strip() or "(unknown)"
+            bucket = breakdown.setdefault(direction, {"total": 0, "win": 0, "loss": 0, "neutral": 0})
+            bucket["total"] += 1
+            outcome = (row.outcome or "").strip()
+            if outcome in ("win", "loss", "neutral"):
+                bucket[outcome] += 1
+
+        enriched: Dict[str, Any] = {}
+        for direction, bucket in breakdown.items():
+            win = bucket["win"]
+            loss = bucket["loss"]
+            denom = win + loss
+            scored = denom + bucket["neutral"]
+            enriched[direction] = {
+                **bucket,
+                "win_rate_pct": round(win / denom * 100, 2) if denom else None,
+                "strict_accuracy_pct": round(win / scored * 100, 2) if scored else None,
+            }
+        return enriched
+
+    @staticmethod
+    def compute_calibration(
+        calls: Iterable[Tuple[Optional[float], Optional[bool]]],
+    ) -> Dict[str, Any]:
+        """计算置信度校准指标：Brier 分数 + 可靠性表。
+
+        calls: (predicted_probability, direction_correct) 序列。
+        - 严格口径：direction_correct 为 True 记 1，其余（False 或 neutral 的 None）记 0，
+          与 strict_accuracy_pct 保持一致——对冲/中性结果同样计入校准。
+        - 概率非法（None、越界、非有限）的样本跳过，不计入 sample_count。
+
+        可靠性表按 0.1 宽度分桶（[0.0,0.1) ... [0.9,1.0]），当前 高/中/低 映射的
+        0.8/0.6/0.4 会落入互不重叠的桶；未来更细的数值 p_up 无需改动即可使用。
+        每桶报告样本数、平均预测概率与实际命中率，便于对比预测 vs 实际。
+        """
+        samples: List[Tuple[float, float]] = []
+        for probability, correct in calls:
+            if probability is None:
+                continue
+            try:
+                p = float(probability)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(p) or p < 0.0 or p > 1.0:
+                continue
+            y = 1.0 if correct is True else 0.0
+            samples.append((p, y))
+
+        if not samples:
+            return {"brier_score": None, "sample_count": 0, "reliability_table": []}
+
+        brier = sum((p - y) ** 2 for p, y in samples) / len(samples)
+
+        buckets: Dict[int, Dict[str, float]] = {}
+        for p, y in samples:
+            idx = min(int(p * 10), 9)
+            bucket = buckets.setdefault(idx, {"count": 0, "predicted_sum": 0.0, "hits": 0})
+            bucket["count"] += 1
+            bucket["predicted_sum"] += p
+            bucket["hits"] += int(y)
+
+        reliability_table = [
+            {
+                "p_low": round(idx / 10, 2),
+                "p_high": round((idx + 1) / 10, 2),
+                "count": int(bucket["count"]),
+                "avg_predicted": round(bucket["predicted_sum"] / bucket["count"], 4),
+                "hit_count": int(bucket["hits"]),
+                "realized_hit_rate_pct": round(bucket["hits"] / bucket["count"] * 100, 2),
+            }
+            for idx, bucket in sorted(buckets.items())
+        ]
+
+        return {
+            "brier_score": round(brier, 4),
+            "sample_count": len(samples),
+            "reliability_table": reliability_table,
+        }
 
     @staticmethod
     def _compute_diagnostics(results: List[BacktestResultLike]) -> Dict[str, Any]:

@@ -1,9 +1,14 @@
 name: 每日股票分析
 
 on:
-  # 定时触发 - 每天北京时间 18:00 (UTC 10:00)
+  # 定时触发（两个时段，run 步骤内按 github.event.schedule 做市场分流）：
+  # - UTC 10:00 = 北京时间 18:00：A股/港股收盘后，服务 CN/HK 自选股 + A股大盘复盘
+  # - UTC 21:00 = 美东 17:00 (EDT) / 16:00 (EST)：美股收盘后，服务 US 自选股
+  #   （21:00 UTC 这一档仅在配置了 STOCK_LIST_US 时才实际运行，
+  #    否则直接跳过，避免对 CN/HK 自选股重复推送同样的内容）
   schedule:
-    - cron: '0 10 * * 1-5'     # 周一到周五，UTC 10:00 = 北京时间 18:00
+    - cron: '0 10 * * 1-5'     # 周一到周五，UTC 10:00 = 北京时间 18:00（CN/HK 时段）
+    - cron: '0 21 * * 1-5'     # 周一到周五，UTC 21:00 = 美股收盘后（US 时段）
   
   # 手动触发
   workflow_dispatch:
@@ -400,6 +405,13 @@ jobs:
           # ==========================================
           # 避免直接写入 STOCK_LIST，保留同名 Environment variables 的 runner 环境值。
           STOCK_LIST_CONFIG: ${{ vars.STOCK_LIST || secrets.STOCK_LIST }}
+          # 定时分流用自选股列表（可选）：
+          # - STOCK_LIST_CN：10:00 UTC（A股/港股收盘后）时段使用；未配置时回退 STOCK_LIST
+          # - STOCK_LIST_US：21:00 UTC（美股收盘后）时段使用；未配置时该时段直接跳过
+          STOCK_LIST_CN_CONFIG: ${{ vars.STOCK_LIST_CN || secrets.STOCK_LIST_CN }}
+          STOCK_LIST_US_CONFIG: ${{ vars.STOCK_LIST_US || secrets.STOCK_LIST_US }}
+          # 21:00 UTC 时段的大盘复盘区域（默认 us）
+          MARKET_REVIEW_REGION_US: ${{ vars.MARKET_REVIEW_REGION_US || secrets.MARKET_REVIEW_REGION_US || 'us' }}
           MARKET_REVIEW_REGION: ${{ vars.MARKET_REVIEW_REGION || secrets.MARKET_REVIEW_REGION || 'cn' }}
           MARKET_REVIEW_COLOR_SCHEME: ${{ vars.MARKET_REVIEW_COLOR_SCHEME || secrets.MARKET_REVIEW_COLOR_SCHEME || 'green_up' }}
           
@@ -435,6 +447,37 @@ jobs:
             export STOCK_LIST="$STOCK_LIST_CONFIG"
           elif [ -z "${STOCK_LIST:-}" ]; then
             export STOCK_LIST="600519"
+          fi
+
+          # ==========================================
+          # 定时触发分流（cron 双时段，避免一日两次重复推送）
+          # - 10:00 UTC：CN/HK 时段。配置了 STOCK_LIST_CN 时用它，否则沿用 STOCK_LIST（旧行为不变）。
+          # - 21:00 UTC：US 时段。仅在配置了 STOCK_LIST_US 时运行（并将大盘复盘切到 us），
+          #   否则直接跳过：未拆分列表的用户 21:00 档不产生对 CN/HK 自选股的重复通知。
+          # 手动触发（workflow_dispatch）不参与分流，保持完整 STOCK_LIST。
+          # ==========================================
+          SCHEDULE_SLOT=""
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            case "${{ github.event.schedule }}" in
+              "0 10 * * 1-5") SCHEDULE_SLOT="cn" ;;
+              "0 21 * * 1-5") SCHEDULE_SLOT="us" ;;
+            esac
+            echo "🕒 定时触发时段: ${SCHEDULE_SLOT:-unknown} (cron='${{ github.event.schedule }}')"
+          fi
+
+          if [ "$SCHEDULE_SLOT" = "cn" ] && [ -n "${STOCK_LIST_CN_CONFIG:-}" ]; then
+            export STOCK_LIST="$STOCK_LIST_CN_CONFIG"
+            echo "📊 CN/HK 时段使用 STOCK_LIST_CN"
+          elif [ "$SCHEDULE_SLOT" = "us" ]; then
+            if [ -n "${STOCK_LIST_US_CONFIG:-}" ]; then
+              export STOCK_LIST="$STOCK_LIST_US_CONFIG"
+              export MARKET_REVIEW_REGION="${MARKET_REVIEW_REGION_US:-us}"
+              echo "📊 US 时段使用 STOCK_LIST_US（大盘复盘区域: $MARKET_REVIEW_REGION）"
+            else
+              echo "⏭️ 21:00 UTC（美股收盘后）时段触发，但未配置 STOCK_LIST_US，跳过本次运行。"
+              echo "   如需美股收盘后分析，请在 Settings → Secrets and variables → Actions 配置 STOCK_LIST_US。"
+              exit 0
+            fi
           fi
 
           # 处理 LITELLM YAML 配置文件

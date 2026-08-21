@@ -42,6 +42,7 @@ from src.storage import (
 )
 from src.utils.data_processing import parse_json_field
 from src.utils.sanitize import sanitize_decision_signal_payload, sanitize_decision_signal_text
+from src.utils.sniper_points import validate_levels
 
 
 SOURCE_TYPES = frozenset({"analysis", "agent", "alert", "market_review", "manual"})
@@ -872,6 +873,13 @@ class DecisionSignalService:
             payload.get("plan_quality"),
             fields=fields,
         )
+        plan_check = self._evaluate_plan_levels(
+            fields,
+            current_price=self._plan_current_price(payload),
+        )
+        if plan_check is not None:
+            metadata["plan_check"] = plan_check
+            fields["metadata_json"] = self._json_dumps(metadata)
         return fields, {"horizon_defaulted": horizon_defaulted}
 
     @staticmethod
@@ -1072,6 +1080,61 @@ class DecisionSignalService:
         if slots >= 2:
             return "partial"
         return "minimal"
+
+    @staticmethod
+    def _plan_current_price(payload: Dict[str, Any]) -> Optional[float]:
+        """从 payload 的 evidence 中提取分析时现价（供计划价位偏离度校验用）。"""
+        evidence = payload.get("evidence")
+        if not isinstance(evidence, dict):
+            return None
+        value = evidence.get("current_price")
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(price) or price <= 0:
+            return None
+        return price
+
+    def _evaluate_plan_levels(
+        self,
+        fields: Dict[str, Any],
+        *,
+        current_price: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        校验做多计划价位的几何关系（presence 计数之外的质量检查）。
+
+        plan_quality 仅统计字段齐备度；这里进一步检查 stop < entry < target
+        与盈亏比；提供 current_price 时额外检查价位偏离现价的合理边界。
+        发现问题时返回结构化结果（写入 metadata["plan_check"]），
+        价位自洽或无从校验时返回 None（不改动 metadata，保持向后兼容）。
+        """
+        if fields.get("action") not in BULLISH_ACTIONS:
+            return None
+        entry_low = fields.get("entry_low")
+        entry_high = fields.get("entry_high")
+        if entry_low is not None and entry_high is not None:
+            entry = (entry_low + entry_high) / 2
+        else:
+            entry = entry_low if entry_low is not None else entry_high
+        stop = fields.get("stop_loss")
+        target = fields.get("target_price")
+        if entry is None or (stop is None and target is None):
+            return None
+        check = validate_levels(entry, stop, target, current_price=current_price, min_rr=1.5)
+        if check["valid"]:
+            return None
+        logger.warning(
+            "Decision signal plan levels failed validation: stock=%s issues=%s "
+            "entry=%s stop=%s target=%s",
+            fields.get("stock_code"),
+            check["issues"],
+            entry,
+            stop,
+            target,
+        )
+        return check
 
     def _cached_holding_identities(self, *, account_id: Optional[int]) -> set[Tuple[str, str]]:
         identities = self.portfolio_repo.list_cached_position_identities(account_id=account_id)

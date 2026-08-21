@@ -1043,27 +1043,20 @@ def stabilize_decision_with_structure(
         )
 
         flow_bias, flow_reason = _capital_flow_bias_with_status(fundamental_context)
-        if flow_bias == "unavailable":
-            if isinstance(fundamental_context, dict) and "capital_flow" in fundamental_context:
-                if decision_type == "buy" or advice_decision_type == "buy":
-                    _downgrade_buy_without_capital_flow(
-                        result,
-                        language,
-                        current_price=current_price,
-                        support=support,
-                        resistance=resistance,
-                        flow_status=flow_reason,
-                    )
-                else:
-                    _set_decision_stability_unavailable(
-                        result,
-                        language,
-                        current_price=current_price,
-                        support=support,
-                        resistance=resistance,
-                        flow_status=flow_reason,
-                    )
-            return
+        flow_unavailable = flow_bias == "unavailable"
+        flow_market_unsupported = flow_unavailable and _is_capital_flow_market_unsupported(flow_reason)
+        if flow_unavailable and isinstance(fundamental_context, dict) and "capital_flow" in fundamental_context:
+            # 资金流缺失属于"证据缺失"而非"证据反对"：只记录元数据，不否决买卖结论。
+            # 美股/港股/台股等市场资金流数据源结构性不支持时，必须允许正常输出 buy/sell。
+            _set_decision_stability_unavailable(
+                result,
+                language,
+                current_price=current_price,
+                support=support,
+                resistance=resistance,
+                flow_status=flow_reason,
+                market_unsupported=flow_market_unsupported,
+            )
 
         if current_price is None:
             return
@@ -1083,9 +1076,10 @@ def stabilize_decision_with_structure(
         )
 
         has_significant_risk = _has_structural_risk_alert(result)
+        volume_confirmed = _volume_confirmation(result)
 
         if decision_type == "buy":
-            if near_resistance and flow_bias != "inflow":
+            if near_resistance and flow_bias in {"neutral", "outflow"}:
                 _downgrade_to_structural_hold(
                     result,
                     language,
@@ -1119,7 +1113,7 @@ def stabilize_decision_with_structure(
                     flow_bias=flow_bias,
                 )
         elif decision_type == "sell":
-            if near_support and (flow_bias != "outflow") and not has_significant_risk:
+            if near_support and flow_bias in {"neutral", "inflow"} and not has_significant_risk:
                 _downgrade_to_structural_hold(
                     result,
                     language,
@@ -1143,7 +1137,43 @@ def stabilize_decision_with_structure(
                 )
         elif decision_type == "hold":
             change_pct = _first_numeric_value(getattr(result, "change_pct", None))
-            if change_pct is not None and change_pct < 0 and near_support and flow_bias != "outflow":
+            # 对称升级路径：结构确认时允许 hold→buy / hold→sell（与降级分支使用同一批结构信号）。
+            promote_buy = (
+                breakout
+                and volume_confirmed
+                and not has_significant_risk
+                and (flow_bias == "inflow" or flow_market_unsupported)
+                and advice_decision_type != "sell"
+            )
+            promote_sell = (
+                broke_support
+                and flow_bias != "inflow"
+                and (flow_bias == "outflow" or volume_confirmed)
+                and advice_decision_type != "buy"
+            )
+            if promote_buy:
+                _promote_hold_to_structural_decision(
+                    result,
+                    language,
+                    target="buy",
+                    reason_key="hold_breakout_promotion",
+                    current_price=current_price,
+                    support=support,
+                    resistance=resistance,
+                    flow_bias=flow_bias,
+                )
+            elif promote_sell:
+                _promote_hold_to_structural_decision(
+                    result,
+                    language,
+                    target="sell",
+                    reason_key="hold_support_break_promotion",
+                    current_price=current_price,
+                    support=support,
+                    resistance=resistance,
+                    flow_bias=flow_bias,
+                )
+            elif change_pct is not None and change_pct < 0 and near_support and flow_bias in {"neutral", "inflow"}:
                 _set_structural_hold_wording(
                     result,
                     language,
@@ -1254,6 +1284,18 @@ def _coerce_numeric_value(value: Any) -> Optional[float]:
         return None
 
 
+def _coerce_p_up(value: Any) -> Optional[int]:
+    """把模型输出的 p_up 归一化为 0-100 的整数概率（容忍 0-1 小数写法）。"""
+    numeric = _coerce_numeric_value(value)
+    if numeric is None:
+        return None
+    if 0 < numeric < 1:
+        numeric *= 100
+    if numeric < 0 or numeric > 100:
+        return None
+    return int(round(numeric))
+
+
 def _first_numeric_value(*values: Any) -> Optional[float]:
     for value in values:
         if isinstance(value, (list, tuple)):
@@ -1322,6 +1364,29 @@ def _capital_flow_status_for_stability(reason: str, language: str) -> str:
     return "资金流数据不可用" if language == "zh" else "capital flow unavailable"
 
 
+def _is_capital_flow_market_unsupported(reason: str) -> bool:
+    """判断资金流缺失是否属于"该市场数据源结构性不支持"（而非临时抓取失败）。"""
+    normalized = str(reason or "").strip().lower().replace("-", " ").replace("_", " ")
+    return "not supported" in normalized or "unsupported" in normalized
+
+
+def _volume_confirmation(result: "AnalysisResult") -> bool:
+    """从 dashboard 量能数据判断是否存在放量确认（升级分支的保守门槛）。"""
+    dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+    data_perspective = dashboard.get("data_perspective")
+    if not isinstance(data_perspective, dict):
+        return False
+    volume_block = data_perspective.get("volume_analysis")
+    if not isinstance(volume_block, dict):
+        return False
+    ratio = _coerce_numeric_value(volume_block.get("volume_ratio"))
+    if ratio is not None:
+        return ratio >= 1.5
+    status = str(volume_block.get("volume_status") or "")
+    lowered = status.lower()
+    return "放量" in status or "heavy" in lowered or "surge" in lowered or "high volume" in lowered
+
+
 def _set_decision_stability_unavailable(
     result: "AnalysisResult",
     language: str,
@@ -1330,13 +1395,28 @@ def _set_decision_stability_unavailable(
     support: Optional[float],
     resistance: Optional[float],
     flow_status: str,
+    market_unsupported: bool = False,
 ) -> None:
+    """资金流不可用时只做元数据标注：资金流缺失是"证据缺失"，不否决买卖结论。"""
+    if market_unsupported:
+        reason = (
+            "该市场资金流数据源不支持，资金面确认缺失，结论仅基于量价结构"
+            if language == "zh"
+            else "Capital flow feed is not supported for this market; the verdict relies on price/volume structure without flow confirmation"
+        )
+    else:
+        reason = (
+            "资金流数据暂不可用，未使用资金流校准"
+            if language == "zh"
+            else "Capital flow data temporarily unavailable; stability calibration not applied"
+        )
     dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
     result.dashboard = dashboard
     dashboard["decision_stability"] = {
         "applied": False,
-        "reason": "资金流不可用，未使用资金流校准" if language == "zh" else "Capital flow unavailable; stability calibration not applied",
+        "reason": reason,
         "capital_flow_status": _capital_flow_status_for_stability(flow_status, language),
+        "capital_flow_market_supported": not market_unsupported,
         "current_price": current_price,
         "support": support,
         "resistance": resistance,
@@ -1374,16 +1454,20 @@ def _bound_hold_watch_sentiment_score(
     reason: Optional[str] = None,
     final_action: str = "watch",
 ) -> None:
+    """记录守门校准元数据，但保留模型原始评分。
+
+    评分是模型观点的一部分：守门逻辑只调整措辞与元数据，不再把
+    sentiment_score 压缩到 45-59 区间；守门分歧写入
+    ``dashboard.decision_score_calibration``（adjusted_score 与 raw_score 保持一致）。
+    """
     try:
         score = int(getattr(result, "sentiment_score", 50))
     except (TypeError, ValueError):
         score = 50
-    adjusted_score = min(59, max(45, score))
-    result.sentiment_score = adjusted_score
     _record_decision_score_calibration(
         result,
         raw_score=score,
-        adjusted_score=adjusted_score,
+        adjusted_score=score,
         final_action=final_action,
         guardrail_reason=reason,
     )
@@ -1444,47 +1528,63 @@ def _apply_hold_watch_dashboard(
     result.buy_reason = reason or result.buy_reason
 
 
-def _downgrade_buy_without_capital_flow(
+def _promote_hold_to_structural_decision(
     result: "AnalysisResult",
     language: str,
     *,
-    current_price: Optional[float],
+    target: str,
+    reason_key: str,
+    current_price: float,
     support: Optional[float],
     resistance: Optional[float],
-    flow_status: str,
+    flow_bias: str,
 ) -> None:
-    status_text = _capital_flow_status_for_stability(flow_status, language)
-    if language == "zh":
-        advice = "持有观察"
-        reason = f"{status_text}，买入结论缺少资金面确认，先按观察处理。"
-        no_position = "空仓先不追买，等待资金流恢复、支撑确认或有效突破后再行动。"
-        has_position = "持仓以关键支撑为风控线，资金流恢复前控制仓位。"
-        confidence = "低"
-    else:
-        advice = "Hold and watch"
-        reason = f"{status_text}; the buy call lacks capital-flow confirmation, so treat it as watch-only."
-        no_position = "Do not chase; wait for capital-flow recovery, support confirmation, or a valid breakout."
-        has_position = "Use key support as the risk line and keep position size controlled until capital flow recovers."
-        confidence = "Low"
+    """结构确认时的对称升级：hold→buy（放量有效突破）/ hold→sell（放量或流出的破位）。
 
-    result.decision_type = "hold"
-    result.confidence_level = confidence
-    _bound_hold_watch_sentiment_score(result, reason=reason, final_action="hold")
-    _apply_hold_watch_dashboard(
-        result,
-        language,
-        advice=advice,
-        reason=reason,
-        current_price=current_price,
-        support=support,
-        resistance=resistance,
-        flow_bias="unavailable",
-        no_position=no_position,
-        has_position=has_position,
-        capital_flow_status=status_text,
-    )
+    升级只改方向与措辞并记录 decision_stability 元数据，不改写评分/置信度。
+    """
+    reason_templates = {
+        "zh": {
+            "hold_breakout_promotion": "价格放量突破压力位且资金/量价确认，结构支持由观望升级为买入。",
+            "hold_support_break_promotion": "价格跌破关键支撑且量能/资金流确认破位，结构支持由观望升级为卖出。",
+        },
+        "en": {
+            "hold_breakout_promotion": "Price broke above resistance with volume (and flow where available) confirmation; structure upgrades the watch call to buy.",
+            "hold_support_break_promotion": "Price broke key support with volume/outflow confirmation; structure upgrades the watch call to sell.",
+        },
+        "ko": {
+            "hold_breakout_promotion": "가격이 거래량(및 자금 흐름) 확인과 함께 저항선을 돌파해 관망에서 매수로 승격합니다.",
+            "hold_support_break_promotion": "가격이 거래량/자금 유출 확인과 함께 핵심 지지선을 이탈해 관망에서 매도로 승격합니다.",
+        },
+    }
+    reason = reason_templates.get(language, reason_templates["en"]).get(reason_key, "")
+    advice_key = "买入" if target == "buy" else "卖出"
+    result.decision_type = target
+    result.operation_advice = localize_operation_advice(advice_key, language)
+
+    dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+    result.dashboard = dashboard
+    core = dashboard.get("core_conclusion")
+    if not isinstance(core, dict):
+        core = {}
+        dashboard["core_conclusion"] = core
+    if target == "buy":
+        core["signal_type"] = "🟢买入信号" if language == "zh" else "🟢 Buy signal"
+    else:
+        core["signal_type"] = "🔴卖出信号" if language == "zh" else "🔴 Sell signal"
+
+    dashboard["decision_stability"] = {
+        "applied": True,
+        "promotion": True,
+        "reason": reason,
+        "reason_key": reason_key,
+        "current_price": current_price,
+        "support": support,
+        "resistance": resistance,
+        "capital_flow_bias": flow_bias,
+    }
     _sync_stability_dashboard_fields(result)
-    logger.info("[decision_stability] Downgraded buy because capital flow is unavailable: %s", flow_status)
+    logger.info("[decision_stability] Promoted hold to %s: %s", target, reason_key)
 
 
 def _downgrade_to_structural_hold(
@@ -1905,6 +2005,15 @@ class GeminiAnalyzer:
     "action": "buy/add/hold/reduce/sell/watch/avoid/alert",
     "guardrail_reason": "当分数区间与最终 action 不一致时填写降级/升级原因，否则留空",
     "confidence_level": "高/中/低",
+    "p_up": 0-100整数（5的倍数，价格先到目标位而非止损位的概率）,
+    "ev_contract": {
+        "entry": 入场价数值,
+        "stop": 止损价数值,
+        "target": 目标价数值,
+        "r_multiple": 盈亏比数值（(target-entry)/(entry-stop)）,
+        "expected_value": 期望值数值（p×R−(1−p)）,
+        "flip_condition": "观望时必填：能把结论翻转为买入/卖出的具体价位或事件"
+    },
 
     "dashboard": {
         "core_conclusion": {
@@ -2040,6 +2149,7 @@ class GeminiAnalyzer:
 - ⚠️ 乖离率 >5%（追高风险）
 - ⚠️ 均线缠绕趋势不明
 - ⚠️ 有风险事件
+- ⚠️ 分数表达信念强度；停留在观望必须满足 EV<0 或 R<1.5，并给出明确翻转条件（flip_condition）
 
 ### 减仓（20-39分）：
 - ⚠️ 趋势走弱或跌破关键均线
@@ -2059,13 +2169,16 @@ class GeminiAnalyzer:
 4. **检查清单可视化**：用 ✅⚠️❌ 明确显示每项检查结果
 5. **风险优先级**：舆情中的风险点要醒目标出
 
-## 可操作性与稳定性约束
+## 期望值（EV）决策契约与稳定性约束
 
-- 不得仅因为单日涨跌或评分跨线就在“买入/卖出”之间剧烈切换。
-- 操作建议必须同时参考价格位置（支撑/压力位）、量能/筹码、主力资金流向和风险事件。
-- 股价位于支撑与压力之间、资金流不明确时，优先输出“持有/震荡/观望/洗盘观察”等可执行的中性建议；`decision_type` 仍保持 `hold`。
-- 只有在接近支撑确认或有效突破压力，且资金流/量价配合时，才能给出买入；接近压力且资金流出时不得追买。
-- 只有在跌破关键支撑、主力资金持续流出或风险显著放大时，才能给出卖出/减仓。
+- 每份分析必须给出 `p_up`：0-100 的整数（按 5 的步长），表示在既定周期内价格先触及目标位（而非止损位）的主观概率。
+- 必须给出入场价（entry）、止损价（stop）、目标价（target）；若输入中提供了【系统计算参考位（ATR基准）】，应以其为锚定，其余情况优先采用计算得到的支撑/压力位；允许有理由地微调，但必须写明调整依据。
+- 必须计算盈亏比 R = (target - entry) / (entry - stop)，以及期望值 EV = p×R − (1−p)（其中 p = p_up/100）。
+- 仅当 EV < 0 或 R < 1.5 时才允许输出 hold/观望；且观望必须在 `ev_contract.flip_condition` 写明能把结论翻转为买入或卖出的具体价位或事件。
+- EV 为正且 R ≥ 1.5 的中等风险机会，应如实给出 buy 与诚实的 p_up，不得为求稳而稀释成观望。
+- 资金流数据不支持的市场（美股/港股/台股等）以量价结构为准，不得仅因缺少资金流确认而拒绝给出买入/卖出结论。
+- 不得仅因为单日涨跌或评分跨线就在“买入/卖出”之间剧烈切换；结论变化必须能落到具体价位或事件上。
+- 操作建议必须同时参考价格位置（支撑/压力位）、量能/筹码、主力资金流向（如可用）和风险事件。
 - 必须输出 `dashboard.phase_decision` 七字段；盘中/午休/临近收盘要给出当前动作、观察条件和下一次检查点。
 - 建议输出可选展示字段 `dashboard.signal_attribution` 六字段；解释推荐理由的构成，包括技术指标、新闻舆情、基本面、市场环境的贡献度，以及最强看多/看空信号。
 - 盘前、非交易日或未知阶段不得伪造今日盘中走势；quote/daily_bars/technical 存在 stale、fallback、missing、fetch_failed、partial 或 estimated 时，`confidence_level` 不得为高。"""
@@ -2093,6 +2206,15 @@ class GeminiAnalyzer:
     "action": "buy/add/hold/reduce/sell/watch/avoid/alert",
     "guardrail_reason": "当分数区间与最终 action 不一致时填写降级/升级原因，否则留空",
     "confidence_level": "高/中/低",
+    "p_up": 0-100整数（5的倍数，价格先到目标位而非止损位的概率）,
+    "ev_contract": {
+        "entry": 入场价数值,
+        "stop": 止损价数值,
+        "target": 目标价数值,
+        "r_multiple": 盈亏比数值（(target-entry)/(entry-stop)）,
+        "expected_value": 期望值数值（p×R−(1−p)）,
+        "flip_condition": "观望时必填：能把结论翻转为买入/卖出的具体价位或事件"
+    },
 
     "dashboard": {
         "core_conclusion": {
@@ -2226,6 +2348,7 @@ class GeminiAnalyzer:
 - ⚠️ 信号分歧较大，或缺乏足够确认
 - ⚠️ 风险与机会大致均衡
 - ⚠️ 更适合等待触发条件或回避不确定性
+- ⚠️ 分数表达信念强度；停留在观望必须满足 EV<0 或 R<1.5，并给出明确翻转条件（flip_condition）
 
 ### 减仓（20-39分）：
 - ⚠️ 主要结论转弱，风险明显高于收益
@@ -2245,13 +2368,16 @@ class GeminiAnalyzer:
 4. **检查清单可视化**：用 ✅⚠️❌ 明确显示每项检查结果
 5. **风险优先级**：舆情中的风险点要醒目标出
 
-## 可操作性与稳定性约束
+## 期望值（EV）决策契约与稳定性约束
 
-- 不得仅因为单日涨跌或评分跨线就在“买入/卖出”之间剧烈切换。
-- 操作建议必须同时参考价格位置（支撑/压力位）、量能/筹码、主力资金流向和风险事件。
-- 股价位于支撑与压力之间、资金流不明确时，优先输出“持有/震荡/观望/洗盘观察”等可执行的中性建议；`decision_type` 仍保持 `hold`。
-- 只有在接近支撑确认或有效突破压力，且资金流/量价配合时，才能给出买入；接近压力且资金流出时不得追买。
-- 只有在跌破关键支撑、主力资金持续流出或风险显著放大时，才能给出卖出/减仓。
+- 每份分析必须给出 `p_up`：0-100 的整数（按 5 的步长），表示在既定周期内价格先触及目标位（而非止损位）的主观概率。
+- 必须给出入场价（entry）、止损价（stop）、目标价（target）；若输入中提供了【系统计算参考位（ATR基准）】，应以其为锚定，其余情况优先采用计算得到的支撑/压力位；允许有理由地微调，但必须写明调整依据。
+- 必须计算盈亏比 R = (target - entry) / (entry - stop)，以及期望值 EV = p×R − (1−p)（其中 p = p_up/100）。
+- 仅当 EV < 0 或 R < 1.5 时才允许输出 hold/观望；且观望必须在 `ev_contract.flip_condition` 写明能把结论翻转为买入或卖出的具体价位或事件。
+- EV 为正且 R ≥ 1.5 的中等风险机会，应如实给出 buy 与诚实的 p_up，不得为求稳而稀释成观望。
+- 资金流数据不支持的市场（美股/港股/台股等）以量价结构为准，不得仅因缺少资金流确认而拒绝给出买入/卖出结论。
+- 不得仅因为单日涨跌或评分跨线就在“买入/卖出”之间剧烈切换；结论变化必须能落到具体价位或事件上。
+- 操作建议必须同时参考价格位置（支撑/压力位）、量能/筹码、主力资金流向（如可用）和风险事件。
 - 必须输出 `dashboard.phase_decision` 七字段；盘中/午休/临近收盘要给出当前动作、观察条件和下一次检查点。
 - 建议输出可选展示字段 `dashboard.signal_attribution` 六字段；解释推荐理由的构成，包括技术指标、新闻舆情、基本面、市场环境的贡献度，以及最强看多/看空信号。
 - 盘前、非交易日或未知阶段不得伪造今日盘中走势；quote/daily_bars/technical 存在 stale、fallback、missing、fetch_failed、partial 或 estimated 时，`confidence_level` 不得为高。"""
@@ -3542,9 +3668,13 @@ class GeminiAnalyzer:
                 logger.debug(f"=== 完整 Prompt ({len(prompt)}字符) ===\n{prompt}\n=== End Prompt ===")
 
             # 设置生成配置
+            # 输出上限：思考型模型（adaptive thinking）的思考 token 计入输出预算，
+            # 8192 会导致仪表盘 JSON 被截断并触发二次调用；默认 16384，可用 ANTHROPIC_MAX_TOKENS 覆盖。
             generation_config = {
                 "temperature": config.llm_temperature,
-                "max_output_tokens": 8192,
+                "max_output_tokens": max(
+                    int(getattr(config, "anthropic_max_tokens", 8192) or 8192), 16384
+                ),
             }
 
             logger.info(f"[LLM调用] 开始调用 {model_name}...")
@@ -3734,6 +3864,24 @@ class GeminiAnalyzer:
         )
         quote_rows_text = "\n".join(quote_rows)
         
+        # 下次财报（仅美股，pipeline 注入；无数据时省略该行）
+        earnings_calendar = context.get('earnings_calendar')
+        earnings_row = ""
+        earnings_note = ""
+        if isinstance(earnings_calendar, dict):
+            next_earnings_date = earnings_calendar.get('next_earnings_date')
+            days_until = earnings_calendar.get('days_until')
+            if next_earnings_date is not None and days_until is not None:
+                earnings_row = f"\n| 下次财报 | {next_earnings_date} ({days_until}天后) |"
+                try:
+                    if 0 <= int(days_until) <= 7:
+                        earnings_note = (
+                            f"\n> ⚠️ 财报临近（{days_until}天后）：财报事件波动风险必须纳入 "
+                            "`p_up`、仓位建议与 `risk_alerts` 的考量。\n"
+                        )
+                except (TypeError, ValueError):
+                    pass
+
         # ========== 构建决策仪表盘格式的输入 ==========
         prompt = f"""# 决策仪表盘分析请求
 
@@ -3742,8 +3890,8 @@ class GeminiAnalyzer:
 |------|------|
 | 股票代码 | **{code}** |
 | 股票名称 | **{stock_name}** |
-| 分析日期 | {context.get('date', unknown_text)} |
-
+| 分析日期 | {context.get('date', unknown_text)} |{earnings_row}
+{earnings_note}
 ---
 """
         prompt += format_market_phase_prompt_section(
@@ -3894,7 +4042,7 @@ class GeminiAnalyzer:
 | 资金流入靠前板块 | {top_sector_text} | 板块资金共振参考 |
 | 资金流出靠前板块 | {bottom_sector_text} | 板块风险参考 |
 
-> 资金流向只能作为价格位置的过滤器：接近压力且主力流出时不得追买；接近支撑且未放量跌破时，优先判断为持有观察、震荡或洗盘观察。
+> 资金流向是需要加权的证据，不是一票否决：接近压力位且主力持续流出时，应将其作为显著负面证据计入 `p_up` 与期望值（EV），并写明追买需要的确认条件；接近支撑且未放量跌破时，优先判断为持有观察、震荡或洗盘观察。
 """
 
         # 添加三大法人动向（台股筹码过滤器）— tw-only；仅当 institution 区块 status='ok'
@@ -4027,6 +4175,84 @@ class GeminiAnalyzer:
 {chr(10).join('- ' + note for note in consistency_notes)}
 """
         
+        # 添加系统计算参考位（ATR 基准，pipeline 通过 compute_trade_levels 注入；
+        # 数据不足/几何关系不成立时整块省略——annotate-not-veto，仅供模型锚定）
+        computed_levels = context.get('computed_trade_levels')
+        if isinstance(computed_levels, dict):
+            lv_entry = computed_levels.get('entry')
+            lv_stop = computed_levels.get('stop')
+            lv_target = computed_levels.get('target')
+            lv_r = computed_levels.get('r_multiple')
+            lv_quality = computed_levels.get('quality')
+            if (
+                lv_quality not in (None, 'insufficient_data', 'invalid')
+                and lv_entry is not None
+                and lv_stop is not None
+                and lv_target is not None
+            ):
+                lv_atr = computed_levels.get('atr')
+                lv_notes = computed_levels.get('notes')
+                notes_text = ""
+                if isinstance(lv_notes, list) and lv_notes:
+                    notes_text = "\n" + "\n".join(f"- {note}" for note in lv_notes if note)
+                prompt += f"""
+### 系统计算参考位（ATR基准）
+| 价位 | 数值 | 依据 |
+|------|------|------|
+| 参考入场 entry | {lv_entry} | 现价 |
+| 参考止损 stop | {lv_stop} | 结构摆动低点 / entry−1.5×ATR 取较高者 |
+| 参考目标 target | {lv_target} | 压力位 / entry+3×ATR 取较低者 |
+| 盈亏比 R | {lv_r if lv_r is not None else 'N/A'} | ATR14={lv_atr if lv_atr is not None else 'N/A'}，质量评估：{lv_quality} |
+{notes_text}
+> 请以上述系统计算价位为锚定给出狙击点位（sniper_points）与 `ev_contract` 的 entry/stop/target；
+> 允许有明确理由地调整（如结构位更优、事件驱动），但必须写出调整依据；
+> `ev_contract` 中的 R 与 EV 必须按你最终给出的价位重新计算，而不是照抄本表数值。
+"""
+
+        # 添加历史战绩（只读回测汇总，pipeline 注入；首跑无数据时整块省略）
+        track_record = context.get('track_record')
+        if isinstance(track_record, dict) and (
+            track_record.get('overall') or track_record.get('stock')
+        ):
+            tr_lines = []
+            overall_tr = track_record.get('overall')
+            if isinstance(overall_tr, dict):
+                strict = overall_tr.get('strict_accuracy_pct')
+                scored = overall_tr.get('scored_count')
+                if strict is not None:
+                    sample_text = f"（样本{scored}笔）" if scored else ""
+                    tr_lines.append(f"- 整体严格准确率：{strict}%{sample_text}")
+                brier = overall_tr.get('brier_score')
+                if brier is not None:
+                    tr_lines.append(f"- p_up 校准 Brier 分数：{brier}（越低越好）")
+                advice_breakdown = overall_tr.get('advice_breakdown')
+                if isinstance(advice_breakdown, dict) and advice_breakdown:
+                    parts = [
+                        f"{advice} {bucket.get('strict_accuracy_pct')}%（{bucket.get('total')}笔）"
+                        for advice, bucket in advice_breakdown.items()
+                        if isinstance(bucket, dict) and bucket.get('strict_accuracy_pct') is not None
+                    ]
+                    if parts:
+                        tr_lines.append(f"- 分建议命中率：{'、'.join(parts)}")
+            stock_tr = track_record.get('stock')
+            if isinstance(stock_tr, dict) and stock_tr.get('strict_accuracy_pct') is not None:
+                stock_scored = stock_tr.get('scored_count')
+                stock_sample_text = f"（样本{stock_scored}笔）" if stock_scored else ""
+                tr_lines.append(
+                    f"- 本股历史严格准确率：{stock_tr.get('strict_accuracy_pct')}%{stock_sample_text}"
+                )
+            calibration_hint = track_record.get('calibration_hint')
+            if calibration_hint:
+                tr_lines.append(f"- 校准提示：{calibration_hint}")
+            if tr_lines:
+                prompt += f"""
+### 📜 历史战绩（回测复盘口径，仅供校准）
+{chr(10).join(tr_lines)}
+
+> 以上为你（本系统）过往结论的回测表现。请用它校准本次 `p_up` 与置信度：
+> 不要因历史战绩直接改变买卖方向，但概率标注应向真实命中率收敛。
+"""
+
         # 添加昨日对比数据
         if 'yesterday' in context:
             volume_change = context.get('volume_change_ratio', 'N/A')
@@ -4157,6 +4383,8 @@ class GeminiAnalyzer:
 - This includes `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, all nested dashboard text, checklist items, and every summary field.
 - Use the common English company name when you are confident. If not, keep the listed company name rather than inventing one.
 - When data is missing, explain it in English instead of Chinese.
+- The template above contains Chinese example values (e.g. 本周内, 安全, 放量/平量/缩量, 盘中跟踪, 观察, 建议仓位 X成). Never copy them verbatim: translate every such value (e.g. "Within this week", "Safe", "Expanding/Flat/Shrinking volume", "Intraday tracking", "Observe", "Suggested position: X/10").
+- No Chinese characters may appear anywhere in the output values.
 """
         elif report_language == "ko":
             prompt += """
@@ -4532,6 +4760,16 @@ class GeminiAnalyzer:
                 score_calibration.setdefault("guardrail_reason", str(guardrail_reason).strip())
             # 归一化 signal_attribution（LLM 可能返回字符串/负数/总和≠100）
             normalize_report_signal_attribution(dashboard)
+
+            # EV 决策契约字段（p_up / ev_contract）：存入 dashboard 元数据，
+            # 顶层 schema 允许 extra 字段，不改动 report_schema。
+            if isinstance(dashboard, dict):
+                p_up_value = _coerce_p_up(data.get('p_up'))
+                if p_up_value is not None:
+                    dashboard['p_up'] = p_up_value
+                ev_contract = data.get('ev_contract')
+                if isinstance(ev_contract, dict) and ev_contract:
+                    dashboard['ev_contract'] = ev_contract
 
             # 优先使用 AI 返回的股票名称（如果原名称无效或包含代码）
             ai_stock_name = data.get('stock_name')

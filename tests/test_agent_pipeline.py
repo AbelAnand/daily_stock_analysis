@@ -2235,7 +2235,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             self.assertEqual(phase_decision["next_check_time"], "模型未提供下一次检查点")
             self.assertEqual(phase_decision["confidence_reason"], "模型未提供阶段化置信度理由")
 
-    def test_analyze_with_agent_explains_daily_market_softening_before_risk(self):
+    def test_analyze_with_agent_explains_daily_market_annotation_before_risk(self):
         """A partial result produced before risk must retain its Pipeline start signal."""
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db'), \
@@ -2340,21 +2340,16 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
 
             self.assertIsNotNone(result)
             explanation = result.dashboard["agent_disagreement_explanation"]
-            self.assertEqual(result.decision_type, "hold")
+            # 新契约：大盘环境守门只做标注，不再改写 buy 结论
+            self.assertEqual(result.decision_type, "buy")
             self.assertEqual(explanation["risk_control"]["reason"], "not_evaluated")
             self.assertEqual(explanation["risk_control"]["post_risk_signal"], "buy")
             self.assertNotIn("final_signal", explanation)
             self.assertEqual(explanation["final_action"], result.action)
-            self.assertEqual(
-                explanation["final_adjustments"],
-                [
-                    {
-                        "source": "daily_market_context",
-                        "from_action": "buy",
-                        "to_action": result.action,
-                    }
-                ],
-            )
+            self.assertEqual(explanation["final_adjustments"], [])
+            guardrail_meta = result.dashboard["daily_market_context_guardrail"]
+            self.assertTrue(guardrail_meta["applied"])
+            self.assertEqual(guardrail_meta["mode"], "annotate")
             signal_result = (
                 pipeline._extract_decision_signal_after_history_save.call_args.kwargs["result"]
             )

@@ -26,16 +26,18 @@ LEGACY_STRATEGY_CONSENSUS_AGENT_NAME = "strategy_consensus"
 CORE_TRADING_SKILL_POLICY_ZH = """## 默认技能基线（必须严格遵守）
 
 当前激活的 skills 可以补充细化分析视角，但默认风险控制和交易节奏必须遵守以下基线。
+基线是仓位与风险的输入，不是对结论的一票否决：结论由期望值（EV）与盈亏比决定。
 
-### 1. 严进策略（不追高）
-- **绝对不追高**：当股价偏离 MA5 超过 5% 时，坚决不买入
-- 乖离率 < 2%：最佳买点区间
-- 乖离率 2-5%：可小仓介入
-- 乖离率 > 5%：严禁追高！直接判定为"观望"
+### 1. 严进策略（乖离率 → 仓位与止损输入，不直接否决）
+- 乖离率 < 2%：最佳买点区间，可给正常建议仓位
+- 乖离率 2-5%：小仓介入，注明分批与回踩确认
+- 乖离率 > 5%：追高风险高——若仍判断买入，必须显著缩小建议仓位、放宽并写明止损位，
+  并在风险提示中标注"高乖离追高风险"；不得仅因乖离率超标就机械改写为"观望"
 
-### 2. 趋势交易（顺势而为）
-- **多头排列必须条件**：MA5 > MA10 > MA20
-- 只做多头排列的股票，空头排列坚决不碰
+### 2. 趋势交易（顺势而为，逆势降权而非禁入）
+- **多头排列优先**：MA5 > MA10 > MA20 时做多胜率最高
+- 非多头排列时降低做多权重：避免重仓做多，或按同样的 EV 契约给出回避/减仓/卖出结论，
+  而不是一律"不碰"；空头排列下的做多建议必须给出明确的结构理由与更严格的止损
 - 均线发散上行优于均线粘合
 
 ### 3. 效率优先（筹码结构）
@@ -61,12 +63,18 @@ CORE_TRADING_SKILL_POLICY_ZH = """## 默认技能基线（必须严格遵守）
 TECHNICAL_SKILL_RULES_EN = """## Default Skill Baseline
 
 Treat the currently activated skills as the primary analysis lens, but keep the
-following default risk controls as the shared baseline:
+following default risk controls as the shared baseline. These are position-sizing
+and risk inputs, not decision vetoes — the verdict follows expected value and
+reward:risk:
 
-- Bullish alignment: MA5 > MA10 > MA20
-- Bias from MA5 < 2% -> ideal buy zone; 2-5% -> small position; > 5% -> no chase
+- Bullish alignment (MA5 > MA10 > MA20) is the highest-probability long setup
+- Bias from MA5 < 2% -> ideal buy zone; 2-5% -> small position; > 5% -> chasing
+  risk: if still a buy, cut suggested size sharply and state a wider stop instead
+  of auto-downgrading to watch
 - Shrink-pullback to MA5 is the preferred entry rhythm
-- Below MA20 -> hold off unless the active skill explicitly proves a better setup
+- Non-bullish alignment -> reduce long sizing or state an avoid/sell verdict via
+  the same EV contract; do not blanket-ban the name
+- Below MA20 -> long entries need explicit structural justification and a strict stop
 """
 
 

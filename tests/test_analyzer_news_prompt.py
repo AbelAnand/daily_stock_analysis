@@ -116,7 +116,7 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         prompt = analyzer._get_analysis_system_prompt("zh", stock_code="600519")
 
         self.assertIn("专注于趋势交易", prompt)
-        self.assertIn("多头排列必须条件", prompt)
+        self.assertIn("多头排列优先", prompt)
         self.assertIn("多头排列：MA5 > MA10 > MA20", prompt)
 
     def test_analysis_prompt_requires_phase_decision_in_main_and_legacy_modes(self) -> None:
@@ -142,10 +142,14 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
 
         prompt = analyzer._get_analysis_system_prompt("zh", stock_code="002812")
 
-        self.assertIn("可操作性与稳定性约束", prompt)
+        # EV 决策契约替代了旧的"优先中性/对冲"约束
+        self.assertIn("期望值（EV）决策契约与稳定性约束", prompt)
         self.assertIn("不得仅因为单日涨跌", prompt)
         self.assertIn("支撑/压力位", prompt)
-        self.assertIn("洗盘观察", prompt)
+        self.assertIn("`p_up`", prompt)
+        self.assertIn("flip_condition", prompt)
+        self.assertIn("EV = p×R − (1−p)", prompt)
+        self.assertIn("不得为求稳而稀释成观望", prompt)
 
     def test_analysis_prompt_score_scale_splits_reduce_and_sell_bands(self) -> None:
         for legacy in (False, True):
@@ -229,7 +233,10 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("主力资金流向（操作建议过滤器）", prompt)
         self.assertIn("主力净流入", prompt)
         self.assertIn("-1200000", prompt)
-        self.assertIn("接近压力且主力流出时不得追买", prompt)
+        # EV 契约口径：资金流出是需要加权的负面证据，而不是机械禁止追买
+        self.assertIn("需要加权的证据，不是一票否决", prompt)
+        self.assertIn("显著负面证据", prompt)
+        self.assertNotIn("不得追买", prompt)
         self.assertIn("洗盘观察", prompt)
 
     def test_prompt_prefers_context_news_window_days(self) -> None:

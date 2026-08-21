@@ -61,7 +61,7 @@ class BacktestEngineTestCase(unittest.TestCase):
 
     def test_wait_maps_to_cash_and_flat_direction(self):
         cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
-        # Stock drops ~5%: AI said wait (neutral), stock moved significantly → loss
+        # 对称打分：股价跌 ~5%，观望（空仓立场）成功规避超过 band 的下跌 → win
         bars = self._bars(date(2024, 1, 1), [98, 96, 95], highs=[99, 97, 96], lows=[97, 95, 94])
         res = BacktestEngine.evaluate_single(
             operation_advice="观望",
@@ -74,7 +74,42 @@ class BacktestEngineTestCase(unittest.TestCase):
         )
         self.assertEqual(res["position_recommendation"], "cash")
         self.assertEqual(res["direction_expected"], "flat")
+        self.assertEqual(res["outcome"], "win")
+        self.assertTrue(res["direction_correct"])
+
+    def test_wait_missing_rally_is_loss_opportunity_cost(self):
+        cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        # 对称打分：观望期间股价涨 ~5%（> band），踏空计为 loss（机会成本）
+        bars = self._bars(date(2024, 1, 1), [102, 104, 105], highs=[103, 105, 106], lows=[101, 103, 104])
+        res = BacktestEngine.evaluate_single(
+            operation_advice="观望",
+            analysis_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=bars,
+            stop_loss=None,
+            take_profit=None,
+            config=cfg,
+        )
+        self.assertEqual(res["direction_expected"], "flat")
         self.assertEqual(res["outcome"], "loss")
+        self.assertFalse(res["direction_correct"])
+
+    def test_wait_flat_is_neutral_not_free_win(self):
+        cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        # 对称打分：横盘（|r| < band）时观望不再免费得胜，计 neutral
+        bars = self._bars(date(2024, 1, 1), [100.5, 100.2, 100.8], highs=[101, 101, 101], lows=[100, 100, 100])
+        res = BacktestEngine.evaluate_single(
+            operation_advice="观望",
+            analysis_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=bars,
+            stop_loss=None,
+            take_profit=None,
+            config=cfg,
+        )
+        self.assertEqual(res["direction_expected"], "flat")
+        self.assertEqual(res["outcome"], "neutral")
+        self.assertIsNone(res["direction_correct"])
 
     def test_bearish_like_phrases_match_keyword_substring(self):
         self.assertEqual(
@@ -122,8 +157,9 @@ class BacktestEngineTestCase(unittest.TestCase):
             "long",
         )
 
-    def test_hold_win_when_flat(self):
+    def test_hold_flat_is_neutral_same_bar_as_buy(self):
         cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        # 对称打分：持有与买入同为多头立场，|r| < band 时同为 neutral（不再 r>=0 即胜）
         bars = self._bars(date(2024, 1, 1), [100.5, 100.2, 101], highs=[101, 101, 101], lows=[99.8, 99.9, 100])
         res = BacktestEngine.evaluate_single(
             operation_advice="持有",
@@ -134,7 +170,8 @@ class BacktestEngineTestCase(unittest.TestCase):
             take_profit=None,
             config=cfg,
         )
-        self.assertEqual(res["outcome"], "win")
+        self.assertEqual(res["outcome"], "neutral")
+        self.assertIsNone(res["direction_correct"])
 
     def test_hold_win_when_up(self):
         cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
@@ -167,11 +204,18 @@ class BacktestEngineTestCase(unittest.TestCase):
             forward_bars=self._bars(date(2024, 1, 1), [99.5, 99, 99]),
             config=cfg,
         )
-        not_up = BacktestEngine.evaluate_decision_signal(
+        not_up_flat = BacktestEngine.evaluate_decision_signal(
             direction_expected="not_up",
             anchor_date=date(2024, 1, 1),
             start_price=100,
             forward_bars=self._bars(date(2024, 1, 1), [100.5, 101, 101.5]),
+            config=cfg,
+        )
+        not_up_hit = BacktestEngine.evaluate_decision_signal(
+            direction_expected="not_up",
+            anchor_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=self._bars(date(2024, 1, 1), [99, 98, 97]),
             config=cfg,
         )
         not_up_miss = BacktestEngine.evaluate_decision_signal(
@@ -184,7 +228,9 @@ class BacktestEngineTestCase(unittest.TestCase):
 
         self.assertEqual(up["outcome"], "hit")
         self.assertEqual(not_down["outcome"], "neutral")
-        self.assertEqual(not_up["outcome"], "hit")
+        # 对称打分：横盘时 not_up 不再免费得 hit，计 neutral
+        self.assertEqual(not_up_flat["outcome"], "neutral")
+        self.assertEqual(not_up_hit["outcome"], "hit")
         self.assertEqual(not_up_miss["outcome"], "miss")
 
     def test_decision_signal_helper_rejects_non_finite_prices(self):
@@ -221,8 +267,9 @@ class BacktestEngineTestCase(unittest.TestCase):
         self.assertIsNone(bad_bounds["max_high"])
         self.assertIsNone(bad_bounds["min_low"])
 
-    def test_decision_signal_helper_does_not_change_evaluate_single_hold_behavior(self):
+    def test_decision_signal_helper_matches_evaluate_single_hold_behavior(self):
         cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        # 对称打分下 hold(+0.6%, |r| < band) 在两条评估路径中均为 neutral
         res = BacktestEngine.evaluate_single(
             operation_advice="持有",
             analysis_date=date(2024, 1, 1),
@@ -234,7 +281,34 @@ class BacktestEngineTestCase(unittest.TestCase):
         )
 
         self.assertEqual(res["direction_expected"], "not_down")
-        self.assertEqual(res["outcome"], "win")
+        self.assertEqual(res["outcome"], "neutral")
+        self.assertIsNone(res["direction_correct"])
+
+        signal = BacktestEngine.evaluate_decision_signal(
+            direction_expected="not_down",
+            anchor_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=self._bars(date(2024, 1, 1), [100.2, 100.4, 100.6]),
+            config=cfg,
+        )
+        self.assertEqual(signal["outcome"], "neutral")
+
+    def test_hold_and_buy_share_same_win_threshold(self):
+        cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        # 对称打分：hold 与 buy 使用相同 +band 胜利门槛（r=+4% → 双双 win）
+        bars = self._bars(date(2024, 1, 1), [102, 103, 104], highs=[103, 104, 105], lows=[101, 102, 103])
+        for advice in ("持有", "买入"):
+            res = BacktestEngine.evaluate_single(
+                operation_advice=advice,
+                analysis_date=date(2024, 1, 1),
+                start_price=100,
+                forward_bars=bars,
+                stop_loss=None,
+                take_profit=None,
+                config=cfg,
+            )
+            self.assertEqual(res["outcome"], "win", advice)
+            self.assertTrue(res["direction_correct"], advice)
 
     def test_stop_loss_hit_first(self):
         cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)

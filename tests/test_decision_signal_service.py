@@ -824,6 +824,121 @@ def test_service_plan_quality_slots_and_explicit_override(isolated_db) -> None:
     assert explicit["item"]["plan_quality"] == "unknown"
 
 
+def test_service_flags_inverted_stop_in_plan_check(isolated_db) -> None:
+    service = DecisionSignalService(db_manager=isolated_db)
+
+    item = service.create_signal(
+        _payload(
+            source_report_id=211,
+            trace_id="trace-211",
+            entry_low=1680,
+            stop_loss=1750,  # 止损高于入场价
+            target_price=1850,
+        )
+    )["item"]
+
+    plan_check = item["metadata"]["plan_check"]
+    assert plan_check["valid"] is False
+    assert "stop_not_below_entry" in plan_check["issues"]
+    # presence 计数口径保持不变：字段仍然齐备
+    assert item["plan_quality"] == "partial"
+
+
+def test_service_flags_poor_risk_reward_in_plan_check(isolated_db) -> None:
+    service = DecisionSignalService(db_manager=isolated_db)
+
+    # 风险 80，回报 20 → R:R = 0.25 < 1.5
+    item = service.create_signal(
+        _payload(
+            source_report_id=212,
+            trace_id="trace-212",
+            entry_low=1680,
+            stop_loss=1600,
+            target_price=1700,
+            invalidation="跌破 1600",
+        )
+    )["item"]
+
+    plan_check = item["metadata"]["plan_check"]
+    assert plan_check["valid"] is False
+    assert "poor_risk_reward" in plan_check["issues"]
+    assert plan_check["r_multiple"] == 0.25
+    # 齐备度（presence）仍为 complete，几何问题通过 plan_check 附加暴露
+    assert item["plan_quality"] == "complete"
+
+
+def test_service_valid_plan_levels_leave_metadata_untouched(isolated_db) -> None:
+    service = DecisionSignalService(db_manager=isolated_db)
+
+    item = service.create_signal(
+        _payload(
+            source_report_id=213,
+            trace_id="trace-213",
+            entry_low=1680,
+            stop_loss=1600,
+            target_price=1850,
+        )
+    )["item"]
+
+    assert "plan_check" not in item["metadata"]
+
+
+def test_service_plan_check_uses_evidence_current_price_for_sanity_bound(isolated_db) -> None:
+    service = DecisionSignalService(db_manager=isolated_db)
+
+    # 几何关系自洽（R=2.125），但价位相对现价 100 偏离过大 → 疑似臆造
+    item = service.create_signal(
+        _payload(
+            source_report_id=215,
+            trace_id="trace-215",
+            entry_low=1680,
+            stop_loss=1600,
+            target_price=1850,
+            evidence={"current_price": 100.0},
+        )
+    )["item"]
+
+    plan_check = item["metadata"]["plan_check"]
+    assert plan_check["valid"] is False
+    assert "entry_far_from_price" in plan_check["issues"]
+
+
+def test_service_plan_check_ignores_invalid_evidence_current_price(isolated_db) -> None:
+    service = DecisionSignalService(db_manager=isolated_db)
+
+    # evidence.current_price 非法时退回原有校验口径（几何自洽 → 不写 plan_check）
+    item = service.create_signal(
+        _payload(
+            source_report_id=216,
+            trace_id="trace-216",
+            entry_low=1680,
+            stop_loss=1600,
+            target_price=1850,
+            evidence={"current_price": "not-a-number"},
+        )
+    )["item"]
+
+    assert "plan_check" not in item["metadata"]
+
+
+def test_service_plan_check_skips_defensive_actions(isolated_db) -> None:
+    service = DecisionSignalService(db_manager=isolated_db)
+
+    # 卖出计划的价位几何关系与做多相反，不做做多口径校验
+    item = service.create_signal(
+        _payload(
+            source_report_id=214,
+            trace_id="trace-214",
+            action="sell",
+            entry_low=1680,
+            stop_loss=1750,
+            target_price=1600,
+        )
+    )["item"]
+
+    assert "plan_check" not in item["metadata"]
+
+
 def test_service_rejects_invalid_enums_and_ranges(isolated_db) -> None:
     service = DecisionSignalService(db_manager=isolated_db)
 

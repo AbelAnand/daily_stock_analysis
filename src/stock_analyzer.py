@@ -113,6 +113,13 @@ class TrendAnalysisResult:
     resistance_levels: List[float] = field(default_factory=list)
     support_levels: List[float] = field(default_factory=list)
 
+    # 波动与结构位（ATR 与摆动高低点）
+    atr_14: float = 0.0              # ATR(14)，Wilder 平滑
+    atr_pct: float = 0.0             # ATR / 现价 * 100
+    swing_low_10: float = 0.0        # 近10日最低价（短期结构支撑）
+    swing_low_20: float = 0.0        # 近20日最低价（结构支撑）
+    swing_high_20: float = 0.0       # 近20日最高价（下一压力位）
+
     # MACD 指标
     macd_dif: float = 0.0          # DIF 快线
     macd_dea: float = 0.0          # DEA 慢线
@@ -152,6 +159,13 @@ class TrendAnalysisResult:
             'volume_trend': self.volume_trend,
             'support_ma5': self.support_ma5,
             'support_ma10': self.support_ma10,
+            'support_levels': self.support_levels,
+            'resistance_levels': self.resistance_levels,
+            'atr_14': self.atr_14,
+            'atr_pct': self.atr_pct,
+            'swing_low_10': self.swing_low_10,
+            'swing_low_20': self.swing_low_20,
+            'swing_high_20': self.swing_high_20,
             'buy_signal': self.buy_signal.value,
             'signal_score': self.signal_score,
             'signal_reasons': self.signal_reasons,
@@ -192,6 +206,11 @@ class StockTrendAnalyzer:
     MACD_SLOW = 26             # 慢线周期
     MACD_SIGNAL = 9             # 信号线周期
 
+    # ATR / 结构位参数
+    ATR_PERIOD = 14             # ATR 周期（Wilder 平滑）
+    SWING_SHORT = 10            # 短期摆动低点回看天数
+    SWING_LOOKBACK = 20         # 摆动高低点回看天数
+
     # RSI 参数
     RSI_SHORT = 6               # 短期RSI周期
     RSI_MID = 12               # 中期RSI周期
@@ -231,6 +250,9 @@ class StockTrendAnalyzer:
         df = self._calculate_macd(df)
         df = self._calculate_rsi(df)
 
+        # 计算 ATR（真实波幅）
+        df = self._calculate_atr(df)
+
         # 获取最新数据
         latest = df.iloc[-1]
         result.current_price = float(latest['close'])
@@ -248,8 +270,9 @@ class StockTrendAnalyzer:
         # 3. 量能分析
         self._analyze_volume(df, result)
 
-        # 4. 支撑压力分析
+        # 4. 支撑压力分析（含 ATR 与摆动高低点）
         self._analyze_support_resistance(df, result)
+        self._analyze_atr_swings(df, result)
 
         # 5. MACD 分析
         self._analyze_macd(df, result)
@@ -338,6 +361,63 @@ class StockTrendAnalyzer:
 
         return df
     
+    def _calculate_atr(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        计算 ATR（Average True Range，Wilder 平滑）
+
+        公式：
+        - TR = max(High-Low, |High-PrevClose|, |Low-PrevClose|)
+        - ATR = Wilder SMMA(TR, 14)，即 ewm(alpha=1/14, adjust=False)
+        """
+        df = df.copy()
+
+        prev_close = df['close'].shift(1)
+        tr = pd.concat(
+            [
+                df['high'] - df['low'],
+                (df['high'] - prev_close).abs(),
+                (df['low'] - prev_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+
+        # 与 RSI 一致的 Wilder SMMA 口径
+        df[f'ATR{self.ATR_PERIOD}'] = tr.ewm(alpha=1 / self.ATR_PERIOD, adjust=False).mean()
+
+        return df
+
+    def _analyze_atr_swings(self, df: pd.DataFrame, result: TrendAnalysisResult) -> None:
+        """
+        提取 ATR 与摆动高低点（结构支撑/压力）
+
+        - swing_low_10/20：近10/20日最低价，作为结构性止损参考
+        - swing_high_20：近20日最高价，作为下一压力位参考
+        """
+        atr_col = f'ATR{self.ATR_PERIOD}'
+        if atr_col in df.columns:
+            atr = df.iloc[-1][atr_col]
+            if atr == atr and atr > 0:  # NaN defense
+                result.atr_14 = float(atr)
+                if result.current_price > 0:
+                    result.atr_pct = result.atr_14 / result.current_price * 100
+
+        if 'low' in df.columns:
+            swing_low_10 = df['low'].iloc[-self.SWING_SHORT:].min()
+            swing_low_20 = df['low'].iloc[-self.SWING_LOOKBACK:].min()
+            if swing_low_10 == swing_low_10 and swing_low_10 > 0:
+                result.swing_low_10 = float(swing_low_10)
+            if swing_low_20 == swing_low_20 and swing_low_20 > 0:
+                result.swing_low_20 = float(swing_low_20)
+
+        if 'high' in df.columns:
+            swing_high_20 = df['high'].iloc[-self.SWING_LOOKBACK:].max()
+            if swing_high_20 == swing_high_20 and swing_high_20 > 0:
+                result.swing_high_20 = float(swing_high_20)
+
+        # 结构低点作为支撑位补充
+        if result.swing_low_20 > 0 and result.swing_low_20 not in result.support_levels:
+            result.support_levels.append(result.swing_low_20)
+
     def _analyze_trend(self, df: pd.DataFrame, result: TrendAnalysisResult) -> None:
         """
         分析趋势状态

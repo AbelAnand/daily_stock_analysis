@@ -10,7 +10,11 @@ import logging
 import math
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from src.core.backtest_engine import BacktestEngine, EvaluationConfig
+from src.core.backtest_engine import (
+    BacktestEngine,
+    EvaluationConfig,
+    confidence_level_to_probability,
+)
 from src.repositories.decision_signal_outcome_repo import (
     DecisionSignalOutcomeRepository,
     OutcomeStatsRow,
@@ -360,6 +364,7 @@ class DecisionSignalOutcomeService:
             "statuses": statuses_norm,
             "breakdowns": breakdowns,
             "profile_calibration": self._profile_calibration(stats_rows),
+            "confidence_calibration": self._confidence_calibration(stats_rows),
         }
 
     def get_feedback(self, signal_id: int) -> Dict[str, Any]:
@@ -711,6 +716,69 @@ class DecisionSignalOutcomeService:
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
+
+    def _confidence_calibration(self, stats_rows: List[OutcomeStatsRow]) -> Dict[str, Any]:
+        """信号置信度校准：Brier 分数 + 可靠性表（预测概率 vs 实际命中率）。
+
+        预测概率来源（按优先级）：
+        1. 信号 metadata 中的数值 p_up（0~1，分析端后续写入）。p_up 为“上涨概率”，
+           对 up/not_down 方向即建议正确概率，对 not_up 取 1 - p_up；
+        2. 回退到 metadata.report_confidence_level（高/中/低 → 0.8/0.6/0.4）。
+        严格口径：direction_correct 为 True 记 1，False/neutral 记 0。
+        未能取得概率的已完成样本计入 unscored_completed，便于观察覆盖率。
+        """
+        calls: List[Tuple[Optional[float], Optional[bool]]] = []
+        source_counts: Counter = Counter()
+        unscored_completed = 0
+        for stats_row in stats_rows:
+            outcome = stats_row.outcome
+            if outcome.eval_status != "completed" or outcome.outcome not in OUTCOME_VALUES:
+                continue
+            probability, source = self._signal_probability(
+                stats_row.metadata_json,
+                direction_expected=outcome.direction_expected,
+            )
+            if probability is None:
+                unscored_completed += 1
+                continue
+            source_counts[source] += 1
+            calls.append((probability, outcome.direction_correct))
+
+        calibration = BacktestEngine.compute_calibration(calls)
+        calibration["probability_source_counts"] = dict(source_counts)
+        calibration["unscored_completed"] = unscored_completed
+        return calibration
+
+    def _signal_probability(
+        self,
+        metadata_json: Optional[str],
+        *,
+        direction_expected: Optional[str],
+    ) -> Tuple[Optional[float], Optional[str]]:
+        metadata = self._json_loads(metadata_json)
+        if not isinstance(metadata, dict):
+            return None, None
+
+        raw_p_up = metadata.get("p_up")
+        if raw_p_up is not None:
+            try:
+                p_up = float(raw_p_up)
+            except (TypeError, ValueError):
+                p_up = None
+            if p_up is not None and 1.0 < p_up <= 100.0:
+                p_up = p_up / 100.0  # 兼容分析端 0-100 百分比写法
+            if p_up is not None and 0.0 <= p_up <= 1.0:
+                direction = str(direction_expected or "").strip()
+                if direction in ("up", "not_down"):
+                    return p_up, "p_up"
+                if direction == "not_up":
+                    return 1.0 - p_up, "p_up"
+                # 方向未知时无法解释 p_up，继续尝试置信度回退
+
+        mapped = confidence_level_to_probability(metadata.get("report_confidence_level"))
+        if mapped is not None:
+            return mapped, "report_confidence_level"
+        return None, None
 
     def _profile_calibration(self, stats_rows: List[OutcomeStatsRow]) -> Dict[str, Any]:
         samples: List[Dict[str, Any]] = []

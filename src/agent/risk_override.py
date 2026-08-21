@@ -15,6 +15,37 @@ _DOWNGRADE_STEPS = {
     "downgrade_two": 2,
 }
 
+# 真正"取消资格"的风险类别：只有这些类别（财务造假 / 退市 / 停牌）才允许
+# 触发买入否决。普通的 high/medium 严重度（如大额减持、业绩预亏）不再翻转
+# 方向，而是转为强制收紧止损 + 压缩建议仓位。
+SEVERE_RISK_CATEGORIES = frozenset({"fraud", "delisting", "halt"})
+
+# 建议仓位系数：风险不改方向，只改仓位大小。severe 一律 0.0。
+POSITION_SIZE_FACTORS = {
+    "none": 1.0,
+    "low": 0.9,
+    "medium": 0.6,
+    "high": 0.3,
+}
+
+
+def is_severe_risk_category(category: Any) -> bool:
+    """Whether one risk-flag category belongs to the disqualifying severe set."""
+    return str(category or "").strip().lower() in SEVERE_RISK_CATEGORIES
+
+
+def position_size_factor_for_risk(risk_level: Any, *, severe: bool = False) -> float:
+    """Map a risk level to a suggested position-size multiplier.
+
+    未知的 risk_level 保守地按 medium（0.6）处理；severe 发现直接归零。
+    """
+    if severe:
+        return 0.0
+    return POSITION_SIZE_FACTORS.get(
+        str(risk_level or "").strip().lower(),
+        POSITION_SIZE_FACTORS["medium"],
+    )
+
 
 class DashboardDecisionSignal(str, Enum):
     """Canonical signals used while applying Agent risk controls."""
@@ -106,11 +137,16 @@ def validate_risk_application_transition(
     if to_signal != post_risk_signal:
         raise ValueError("to_signal must match post_risk_signal")
     if reason == RiskApplicationReason.RISK_VETO_APPLIED:
+        # 否决仅保留给 severe 类别（造假/退市/停牌）触发的买入拦截：唯一合法
+        # 转移是 buy -> hold。medium/high 但非 severe 的风险不再走否决路径，
+        # 而是通过 plan.stop_tightening_required 附加强制收紧止损说明。
         if (from_signal, to_signal) != (
             DashboardDecisionSignal.BUY,
             DashboardDecisionSignal.HOLD,
         ):
-            raise ValueError("risk veto application must change buy to hold")
+            raise ValueError(
+                "severe risk veto application must change buy to hold"
+            )
     elif reason == RiskApplicationReason.RISK_DOWNGRADE_APPLIED:
         if (from_signal, to_signal) not in _VALID_DOWNGRADE_TRANSITIONS:
             raise ValueError("risk downgrade must move to a more conservative signal")
@@ -133,6 +169,11 @@ class RiskOverridePlan:
     target_signal: Optional[str]
     will_apply: Optional[bool]
     reason: str
+    # severe 类别（造假/退市/停牌）风险标记是否存在——否决的唯一标记来源。
+    has_severe_flag: bool = False
+    # medium 及以上但未构成否决的风险：强制收紧止损，不翻转方向。
+    stop_tightening_required: bool = False
+    stop_tightening_note: str = ""
 
     @property
     def trigger(self) -> RiskTrigger:
@@ -152,6 +193,7 @@ class RiskOverridePlan:
             "override_enabled": self.override_enabled,
             "override_trigger_present": self.override_trigger_present,
             "veto_buy": self.veto_buy,
+            "stop_tightening_required": self.stop_tightening_required,
             "will_apply": self.will_apply,
             "reason": self.reason,
         }
@@ -249,19 +291,55 @@ def build_risk_override_plan(
     ``risk_level=high`` is risk evidence, but it is not by itself an override
     trigger. Actual execution also depends on ``override_enabled`` and on the
     dashboard signal observed before applying the risk rule.
+
+    否决（veto）只保留给 severe 类别（造假/退市/停牌）或明确的 ``veto_buy`` /
+    ``signal_adjustment=veto``。普通 high/medium 严重度不再触发否决，而是置位
+    ``stop_tightening_required`` 并附上强制收紧止损说明。
     """
     risk_raw = _latest_risk_raw(ctx)
     adjustment = str(risk_raw.get("signal_adjustment") or "").strip().lower()
+    valid_flags = [flag for flag in ctx.risk_flags if isinstance(flag, dict)]
+    has_severe_flag = any(
+        is_severe_risk_category(flag.get("category"))
+        for flag in valid_flags
+    )
     has_high_flag = any(
         str(flag.get("severity", "")).strip().lower() == "high"
-        for flag in ctx.risk_flags
-        if isinstance(flag, dict)
+        for flag in valid_flags
     )
-    risk_level_high = str(risk_raw.get("risk_level") or "").strip().lower() == "high"
-    veto_buy = bool(risk_raw.get("veto_buy")) or adjustment == "veto" or has_high_flag
+    has_medium_flag = any(
+        str(flag.get("severity", "")).strip().lower() == "medium"
+        for flag in valid_flags
+    )
+    risk_level = str(risk_raw.get("risk_level") or "").strip().lower()
+    risk_level_high = risk_level == "high"
+    veto_buy = (
+        bool(risk_raw.get("veto_buy"))
+        or adjustment == "veto"
+        or has_severe_flag
+    )
     has_downgrade = adjustment in _DOWNGRADE_STEPS
     override_trigger_present = veto_buy or has_downgrade
-    evidence_present = override_trigger_present or risk_level_high
+    stop_tightening_required = (
+        not veto_buy
+        and (
+            has_high_flag
+            or has_medium_flag
+            or risk_level in {"medium", "high"}
+        )
+    )
+    stop_tightening_note = (
+        "风险级别达到 medium 及以上但未触发否决：必须收紧止损，"
+        "并按建议仓位系数压缩仓位。"
+        if stop_tightening_required
+        else ""
+    )
+    evidence_present = (
+        override_trigger_present
+        or risk_level_high
+        or has_high_flag
+        or stop_tightening_required
+    )
 
     normalized_current = (
         normalize_decision_signal(current_signal)
@@ -299,9 +377,14 @@ def build_risk_override_plan(
         reason=_risk_override_reason(
             veto_buy=veto_buy,
             adjustment=adjustment,
+            has_severe_flag=has_severe_flag,
             has_high_flag=has_high_flag,
             risk_level_high=risk_level_high,
+            stop_tightening_required=stop_tightening_required,
         ),
+        has_severe_flag=has_severe_flag,
+        stop_tightening_required=stop_tightening_required,
+        stop_tightening_note=stop_tightening_note,
     )
 
 
@@ -316,17 +399,23 @@ def _risk_override_reason(
     *,
     veto_buy: bool,
     adjustment: str,
+    has_severe_flag: bool,
     has_high_flag: bool,
     risk_level_high: bool,
+    stop_tightening_required: bool,
 ) -> str:
-    if has_high_flag:
-        return "high_severity_flag"
+    if has_severe_flag:
+        return "severe_risk_flag"
     if veto_buy:
         return "risk_veto"
     if adjustment in _DOWNGRADE_STEPS:
         return adjustment
+    if has_high_flag:
+        return "high_severity_flag"
     if risk_level_high:
         return "high_risk_evidence"
+    if stop_tightening_required:
+        return "stop_tightening_advisory"
     return "none"
 
 
@@ -341,12 +430,16 @@ def _downgrade_signal(signal: str, steps: int = 1) -> str:
 
 __all__ = [
     "DashboardDecisionSignal",
+    "POSITION_SIZE_FACTORS",
     "RiskApplicationReason",
     "RiskOverrideApplication",
     "RiskOverridePlan",
     "RiskTrigger",
+    "SEVERE_RISK_CATEGORIES",
     "build_risk_override_application",
     "build_risk_override_plan",
     "classify_risk_application_reason",
+    "is_severe_risk_category",
+    "position_size_factor_for_risk",
     "validate_risk_application_transition",
 ]

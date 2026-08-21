@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Decision guardrail using daily market context for Issue #1381."""
+"""Decision guardrail using daily market context for Issue #1381.
+
+守门原则：大盘环境偏谨慎时只做"标注"（风险提示 + 仓位建议 + 元数据），
+不改写模型的 decision_type / operation_advice / sentiment_score / confidence_level。
+守门分歧记录在 ``dashboard.daily_market_context_guardrail``，供下游展示与统计。
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any, List
 
-from src.report_language import (
-    localize_confidence_level,
-    localize_operation_advice,
-    normalize_report_language,
-)
+from src.report_language import normalize_report_language
 
 
 _CONSERVATIVE_TAGS = {"high_risk", "market_cooling", "conservative", "low_position_cap"}
@@ -44,11 +45,6 @@ _NEGATION_HINTS_ZH = ("暂不", "不建议", "不应", "不宜", "不能", "无�
 _NEGATION_HINTS_EN = (" not ", "do not", "don't", "no ", "never", "avoid")
 _NEGATION_HINTS_KO = ("권하지 않", "하지 않", "하지 마", "불가", "금지", "피하", "보류", "않", "말")
 _NEGATION_LOOKBACK = 16
-_GUARDRAIL_SENTIMENT_SCORE = 52
-
-
-def _softened_operation_advice(language: str) -> str:
-    return localize_operation_advice("观望", language)
 
 
 def _negation_hints_for(language: str) -> tuple[str, ...]:
@@ -65,7 +61,10 @@ def apply_daily_market_context_guardrail(
     daily_market_context: Any,
     report_language: str = "zh",
 ) -> List[str]:
-    """Soften aggressive buy advice when daily market context is conservative."""
+    """Annotate aggressive buy advice when daily market context is conservative.
+
+    只补充风险提示、仓位建议与元数据；保留模型的方向、评分与置信度。
+    """
 
     if result is None or not _is_conservative_context(daily_market_context):
         return []
@@ -74,34 +73,30 @@ def apply_daily_market_context_guardrail(
     if not _has_aggressive_buy_signal(result, language=language):
         return []
 
-    adjustments: List[str] = []
-    if str(getattr(result, "decision_type", "") or "").lower() == "buy":
-        result.decision_type = "hold"
-        adjustments.append("daily_market_context_buy_softened")
-    elif _contains_any(str(getattr(result, "operation_advice", "") or ""), _buy_markers(language)):
-        adjustments.append("daily_market_context_buy_softened")
+    adjustments: List[str] = ["daily_market_context_risk_annotated"]
 
-    softened_advice = _softened_operation_advice(language)
-    result.operation_advice = softened_advice
+    caution_note = _caution_note(language)
 
-    if _is_high_confidence(getattr(result, "confidence_level", "")):
-        result.confidence_level = localize_confidence_level("medium", language)
-        adjustments.append("confidence_capped_daily_market_context")
-
-    result.sentiment_score = _cap_conservative_sentiment_score(
-        getattr(result, "sentiment_score", 0)
-    )
+    risk_warning = str(getattr(result, "risk_warning", "") or "")
+    if caution_note not in risk_warning:
+        separator = "; " if language == "en" else "；"
+        result.risk_warning = f"{risk_warning}{separator}{caution_note}" if risk_warning else caution_note
 
     dashboard = getattr(result, "dashboard", None)
     if not isinstance(dashboard, dict):
         dashboard = {}
         result.dashboard = dashboard
 
-    _sync_softened_dashboard_fields(
-        dashboard,
-        softened_advice=softened_advice,
-        language=language,
-    )
+    dashboard["daily_market_context_guardrail"] = {
+        "applied": True,
+        "mode": "annotate",
+        "reason": caution_note,
+        "decision_type_preserved": str(getattr(result, "decision_type", "") or ""),
+        "sentiment_score_preserved": getattr(result, "sentiment_score", None),
+        "sizing_note": _sizing_note(language),
+    }
+
+    _append_sizing_note_to_position_strategy(dashboard, language=language)
 
     phase_decision = dashboard.get("phase_decision")
     if not isinstance(phase_decision, dict):
@@ -112,64 +107,41 @@ def apply_daily_market_context_guardrail(
     return adjustments
 
 
-def _sync_softened_dashboard_fields(
-    dashboard: dict[str, Any],
-    *,
-    softened_advice: str,
-    language: str,
-) -> None:
-    dashboard["sentiment_score"] = _cap_conservative_sentiment_score(
-        dashboard.get("sentiment_score", _GUARDRAIL_SENTIMENT_SCORE)
-    )
-    dashboard["operation_advice"] = softened_advice
-    dashboard["decision_type"] = "hold"
+def _caution_note(language: str) -> str:
+    if language == "en":
+        return (
+            "Daily market context is conservative/high risk; keep the buy plan but "
+            "prefer a smaller position and strict risk control."
+        )
+    if language == "ko":
+        return "대시장 환경이 보수적/고위험이므로 매수 계획은 유지하되 비중을 줄이고 리스크 관리를 엄격히 하세요."
+    return "大盘环境偏谨慎/高风险：买入计划可执行，但建议降低仓位并严格风控。"
 
-    core = dashboard.get("core_conclusion")
-    if isinstance(core, dict):
-        core["one_sentence"] = softened_advice
-        core["position_advice"] = _softened_position_advice(language)
 
+def _sizing_note(language: str) -> str:
+    if language == "en":
+        return "Market-context caution: reduce suggested position size; do not add aggressively until market risk eases."
+    if language == "ko":
+        return "시장 환경 주의: 제안 비중을 줄이고, 시장 위험이 완화되기 전에는 공격적으로 늘리지 마세요."
+    return "大盘环境提示：建议下调仓位规模，大盘风险缓解前不激进加仓。"
+
+
+def _append_sizing_note_to_position_strategy(dashboard: dict[str, Any], *, language: str) -> None:
+    """在既有仓位策略上附加提示，不覆盖模型给出的入场计划。"""
     battle_plan = dashboard.get("battle_plan")
-    if isinstance(battle_plan, dict):
-        battle_plan["position_strategy"] = _softened_position_strategy(language)
-
-
-def _softened_position_advice(language: str) -> dict[str, str]:
-    if language == "en":
-        return {
-            "no_position": "Do not open a new position until market risk eases or confirmation appears.",
-            "has_position": "Hold only a small position; do not increase exposure, and reduce if risk controls break.",
-        }
-    if language == "ko":
-        return {
-            "no_position": "시장 위험이 완화되거나 확인 신호가 나오기 전까지 신규 진입하지 마세요.",
-            "has_position": "소량만 보유하고 비중을 늘리지 마세요. 리스크 관리선이 무너지면 비중을 줄이세요.",
-        }
-    return {
-        "no_position": "大盘环境偏谨慎，暂不开新仓，等待风险缓解或确认信号。",
-        "has_position": "仅保留小仓观察，暂不扩大仓位；若跌破风控位优先降低仓位。",
-    }
-
-
-def _softened_position_strategy(language: str) -> dict[str, str]:
-    position_advice = _softened_position_advice(language)
-    if language == "en":
-        return {
-            "suggested_position": "Small/defensive position",
-            "entry_plan": position_advice["no_position"],
-            "risk_control": "Do not increase exposure before market risk eases; control drawdown strictly.",
-        }
-    if language == "ko":
-        return {
-            "suggested_position": "소량/방어적 비중",
-            "entry_plan": position_advice["no_position"],
-            "risk_control": "시장 위험이 완화되기 전까지 비중을 늘리지 말고 낙폭을 엄격히 관리하세요.",
-        }
-    return {
-        "suggested_position": "小仓/低仓位",
-        "entry_plan": position_advice["no_position"],
-        "risk_control": "大盘风险未缓解前不扩大仓位，严格控制回撤。",
-    }
+    if not isinstance(battle_plan, dict):
+        return
+    position_strategy = battle_plan.get("position_strategy")
+    if not isinstance(position_strategy, dict):
+        position_strategy = {}
+        battle_plan["position_strategy"] = position_strategy
+    note = _sizing_note(language)
+    risk_control = str(position_strategy.get("risk_control") or "")
+    if note not in risk_control:
+        separator = "; " if language == "en" else "；"
+        position_strategy["risk_control"] = (
+            f"{risk_control}{separator}{note}" if risk_control else note
+        )
 
 
 def _append_softening_limitation(phase_decision: dict[str, Any], *, language: str) -> None:
@@ -177,21 +149,21 @@ def _append_softening_limitation(phase_decision: dict[str, Any], *, language: st
     if not isinstance(limitations, list):
         limitations = []
     if language == "en":
-        limitation = "Daily market context is conservative/high risk; aggressive buy advice was softened."
+        limitation = "Daily market context is conservative/high risk; a risk/position-sizing annotation was added."
     elif language == "ko":
-        limitation = "대시장 환경이 보수적/고위험이라 공격적 매수 권고를 완화했습니다."
+        limitation = "대시장 환경이 보수적/고위험이라 리스크·비중 관련 주석을 추가했습니다."
     else:
-        limitation = "大盘环境偏谨慎/高风险，已软化激进买入建议。"
+        limitation = "大盘环境偏谨慎/高风险，已附加风险与仓位标注。"
     if limitation not in limitations:
         limitations.append(limitation)
     phase_decision["data_limitations"] = limitations
     reason = str(phase_decision.get("confidence_reason") or "").strip()
     if language == "en":
-        reason_note = "Market context requires conservative sizing."
+        reason_note = "Market context suggests conservative position sizing."
     elif language == "ko":
         reason_note = "시장 환경상 보수적인 비중 관리가 필요합니다."
     else:
-        reason_note = "大盘环境要求降低进攻性并控制仓位。"
+        reason_note = "大盘环境建议降低仓位规模并控制风险。"
     separator = "; " if language == "en" else "；"
     phase_decision["confidence_reason"] = (
         f"{reason}{separator}{reason_note}" if reason else reason_note
@@ -275,14 +247,3 @@ def _contains_negation_near_marker(context: str, negation_hints: tuple[str, ...]
     if sep_pos >= 0:
         tail = context[sep_pos + 1 :]
     return any(hint in tail for hint in negation_hints)
-
-
-def _cap_conservative_sentiment_score(value: Any) -> int:
-    try:
-        score = int(float(value))
-    except (TypeError, ValueError):
-        return _GUARDRAIL_SENTIMENT_SCORE
-    return min(_GUARDRAIL_SENTIMENT_SCORE, max(0, score))
-
-def _is_high_confidence(value: Any) -> bool:
-    return str(value or "").strip().lower() in {"高", "high", "높음"}

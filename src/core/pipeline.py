@@ -92,6 +92,7 @@ from src.services.decision_signal_extractor import (
 from src.services.decision_signal_summary import summarize_decision_signal
 from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
+from src.utils.trade_levels import compute_trade_levels
 from src.core.trading_calendar import (
     build_market_phase_context,
     get_effective_trading_date,
@@ -709,7 +710,17 @@ class StockAnalysisPipeline:
                 enhanced_context["portfolio_context"] = dict(portfolio_context)
             if isinstance(market_structure_context, dict):
                 enhanced_context["market_structure_context"] = market_structure_context
-            
+
+            # Step 6.5: 历史战绩（只读已持久化的回测汇总，无汇总时静默跳过）
+            track_record = self._build_track_record_context(code)
+            if track_record:
+                enhanced_context["track_record"] = track_record
+
+            # Step 6.6: 财报日历（仅美股；网络失败返回 None，静默跳过）
+            earnings_calendar_context = self._build_earnings_calendar_context(code)
+            if earnings_calendar_context:
+                enhanced_context["earnings_calendar"] = earnings_calendar_context
+
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
             (
                 analysis_context_pack_summary,
@@ -794,7 +805,13 @@ class StockAnalysisPipeline:
                 self._emit_progress(94, f"{stock_name}：正在校验并整理分析结果")
                 result.query_id = query_id
                 realtime_data = enhanced_context.get('realtime', {})
-                result.current_price = realtime_data.get('price')
+                # 实时价缺失时回退到 _enhance_context 计算的现价快照（today.close），
+                # 保证狙击点位校验（plan_check）拿得到偏离度的现价基准。
+                result.current_price = (
+                    realtime_data.get('price')
+                    if realtime_data.get('price') is not None
+                    else enhanced_context.get('current_price')
+                )
                 result.change_pct = realtime_data.get('change_pct')
 
             # Step 7.6: chip_structure fallback (Issue #589) and unavailable collapse
@@ -838,6 +855,8 @@ class StockAnalysisPipeline:
                     report_type=report_type.value,
                     previous_operation_advice=action_source_advice,
                 )
+                # Step 7.8: 财报临近标注（annotate-not-veto：只加提示，不改结论/评分）
+                self._annotate_earnings_risk(result, earnings_calendar_context)
 
             # Step 8: 保存分析历史记录
             if result and result.success:
@@ -994,6 +1013,33 @@ class StockAnalysisPipeline:
                 'risk_factors': trend_result.risk_factors,
             }
 
+        # 现价快照（供系统计算参考位与狙击点位校验使用）
+        current_price = None
+        if realtime_quote is not None:
+            current_price = getattr(realtime_quote, 'price', None)
+        if not current_price:
+            today_block = enhanced.get('today')
+            if isinstance(today_block, dict):
+                current_price = today_block.get('close')
+        try:
+            current_price = float(current_price) if current_price else None
+            if current_price is not None and current_price <= 0:
+                current_price = None
+        except (TypeError, ValueError):
+            current_price = None
+        if current_price is not None:
+            enhanced['current_price'] = current_price
+
+        # 系统计算参考位（ATR 基准）：annotate-not-veto，仅供 LLM 锚定狙击点位。
+        # 数据不足时 compute_trade_levels 返回 insufficient_data，由 analyzer 决定是否注入 prompt。
+        if trend_result is not None and current_price is not None:
+            try:
+                enhanced['computed_trade_levels'] = compute_trade_levels(
+                    trend_result, current_price
+                ).to_dict()
+            except Exception as e:
+                logger.debug(f"计算系统参考位失败（忽略，不影响分析）: {e}")
+
         # Issue #234：盘中分析使用实时 OHLC 与趋势 MA 覆盖 today。
         # 防护条件：trend_result.ma5 > 0 表示 MA 计算已成功且数据量充足。
         if realtime_quote and trend_result and trend_result.ma5 > 0:
@@ -1111,6 +1157,183 @@ class StockAnalysisPipeline:
         )
 
         return enhanced
+
+    def _build_track_record_context(self, code: str) -> Optional[Dict[str, Any]]:
+        """
+        构建"历史战绩"上下文（只读已持久化的回测汇总，绝不触发回测计算）。
+
+        返回紧凑 dict（无数据时返回 None，首跑静默跳过）：
+        {
+            "overall": {"strict_accuracy_pct", "scored_count", "brier_score",
+                         "advice_breakdown": {建议: strict_accuracy_pct}},
+            "stock": {"strict_accuracy_pct", "scored_count"},
+            "calibration_hint": "一句校准提示（可缺）",
+        }
+        """
+        try:
+            from src.services.backtest_service import BacktestService
+
+            service = BacktestService(self.db)
+            overall = service.get_summary(scope="overall", code=None)
+            stock_summary = None
+            try:
+                stock_summary = service.get_summary(scope="stock", code=code)
+            except Exception:
+                stock_summary = None
+
+            if not isinstance(overall, dict) and not isinstance(stock_summary, dict):
+                return None
+
+            track: Dict[str, Any] = {}
+            if isinstance(overall, dict):
+                calibration = overall.get("calibration")
+                calibration = calibration if isinstance(calibration, dict) else {}
+                advice_breakdown = overall.get("advice_breakdown")
+                advice_breakdown = advice_breakdown if isinstance(advice_breakdown, dict) else {}
+                compact_breakdown: Dict[str, Any] = {}
+                for advice, bucket in advice_breakdown.items():
+                    if not isinstance(bucket, dict):
+                        continue
+                    accuracy = bucket.get("strict_accuracy_pct")
+                    total = bucket.get("total")
+                    if accuracy is None or not total:
+                        continue
+                    compact_breakdown[str(advice)] = {
+                        "strict_accuracy_pct": accuracy,
+                        "total": total,
+                    }
+                track["overall"] = {
+                    "strict_accuracy_pct": overall.get("strict_accuracy_pct"),
+                    "scored_count": overall.get("scored_count"),
+                    "completed_count": overall.get("completed_count"),
+                    "brier_score": calibration.get("brier_score"),
+                    "advice_breakdown": compact_breakdown,
+                }
+                hint = self._calibration_hint_from_summary(calibration)
+                if hint:
+                    track["calibration_hint"] = hint
+            if isinstance(stock_summary, dict):
+                track["stock"] = {
+                    "code": code,
+                    "strict_accuracy_pct": stock_summary.get("strict_accuracy_pct"),
+                    "scored_count": stock_summary.get("scored_count"),
+                    "completed_count": stock_summary.get("completed_count"),
+                    "win_rate_pct": stock_summary.get("win_rate_pct"),
+                }
+
+            # 全部字段为空时视为无战绩数据
+            overall_block = track.get("overall") or {}
+            stock_block = track.get("stock") or {}
+            has_signal = any(
+                v is not None
+                for v in (
+                    overall_block.get("strict_accuracy_pct"),
+                    overall_block.get("brier_score"),
+                    stock_block.get("strict_accuracy_pct"),
+                )
+            ) or bool(overall_block.get("advice_breakdown"))
+            return track if has_signal else None
+        except Exception as e:
+            logger.debug(f"{code} 历史战绩读取失败（跳过注入）: {e}")
+            return None
+
+    @staticmethod
+    def _calibration_hint_from_summary(calibration: Dict[str, Any]) -> Optional[str]:
+        """从可靠性表挑样本最多的桶，生成一句 p_up 校准提示。"""
+        try:
+            table = calibration.get("reliability_table")
+            if not isinstance(table, list) or not table:
+                return None
+            rows = [
+                row
+                for row in table
+                if isinstance(row, dict)
+                and row.get("count")
+                and row.get("avg_predicted") is not None
+                and row.get("realized_hit_rate_pct") is not None
+            ]
+            if not rows:
+                return None
+            top = max(rows, key=lambda row: row.get("count", 0))
+            predicted_pct = round(float(top["avg_predicted"]) * 100)
+            realized_pct = top["realized_hit_rate_pct"]
+            return (
+                f"你历史上标注p_up≈{predicted_pct}%的交易实际命中率为{realized_pct}%"
+                f"（样本{top['count']}笔）— 请据此校准本次 p_up"
+            )
+        except Exception:
+            return None
+
+    def _build_earnings_calendar_context(self, code: str) -> Optional[Dict[str, Any]]:
+        """获取下次财报上下文（仅美股；失败/无数据返回 None，绝不抛异常）。"""
+        try:
+            from src.services.earnings_calendar_service import get_earnings_calendar_service
+
+            return get_earnings_calendar_service().get_earnings_context(code)
+        except Exception as e:
+            logger.debug(f"{code} 财报日历获取失败（跳过注入）: {e}")
+            return None
+
+    # 买入/加仓建议持有周期与财报重叠的判定窗口（天）
+    EARNINGS_HORIZON_DAYS = 7
+
+    def _annotate_earnings_risk(
+        self,
+        result: AnalysisResult,
+        earnings_calendar_context: Optional[Dict[str, Any]],
+    ) -> None:
+        """
+        财报临近标注（annotate-not-veto）：
+
+        当买入/加仓结论的持有周期覆盖 7 天内的财报日时：
+        - 在 risk_warning 追加财报事件风险提示 + 仓位控制提示
+        - 在 dashboard 上打 `earnings_within_horizon` 标记
+        绝不改写 action/评分，也不否决模型结论。
+        """
+        try:
+            if not isinstance(earnings_calendar_context, dict):
+                return
+            days_until = earnings_calendar_context.get("days_until")
+            next_date = earnings_calendar_context.get("next_earnings_date")
+            if days_until is None or next_date is None:
+                return
+            try:
+                days_until = int(days_until)
+            except (TypeError, ValueError):
+                return
+            if days_until < 0 or days_until > self.EARNINGS_HORIZON_DAYS:
+                return
+
+            action = str(getattr(result, "action", "") or "").strip().lower()
+            advice = str(getattr(result, "operation_advice", "") or "")
+            is_buy_call = action in {"buy", "add"} or any(
+                keyword in advice for keyword in ("买入", "加仓")
+            )
+            if not is_buy_call:
+                return
+
+            warning = (
+                f"⚠️ 财报事件风险：{next_date}（{days_until}天后）将发布财报，"
+                "买入/加仓的持有周期可能覆盖财报波动窗口。"
+            )
+            sizing_note = "仓位提示：财报前建议缩减单笔仓位、避免重仓押注财报结果（系统标注，不改变模型结论）。"
+            existing = str(getattr(result, "risk_warning", "") or "").strip()
+            appended = f"{warning}{sizing_note}"
+            result.risk_warning = f"{existing}\n{appended}" if existing else appended
+
+            if not isinstance(result.dashboard, dict):
+                result.dashboard = {}
+            result.dashboard["earnings_within_horizon"] = True
+            result.dashboard["next_earnings_date"] = next_date
+            intelligence = result.dashboard.get("intelligence")
+            if isinstance(intelligence, dict):
+                risk_alerts = intelligence.get("risk_alerts")
+                if isinstance(risk_alerts, list):
+                    risk_alerts.append(warning + sizing_note)
+        except Exception as e:
+            logger.debug(
+                "%s 财报临近标注失败（忽略）: %s", getattr(result, "code", "?"), e
+            )
 
     def _attach_belong_boards_to_fundamental_context(
         self,
@@ -1372,6 +1595,34 @@ class StockAnalysisPipeline:
             if trend_result:
                 initial_context["trend_result"] = self._safe_to_dict(trend_result)
 
+            # 与 legacy 路径对齐（Step 6.5/6.6/7.5）：系统计算参考位、历史战绩、财报日历。
+            # 均为 annotate-not-veto：仅注入上下文，缺失时静默跳过。
+            if trend_result is not None:
+                agent_current_price = getattr(realtime_quote, 'price', None) or getattr(
+                    trend_result, 'current_price', None
+                )
+                try:
+                    agent_current_price = (
+                        float(agent_current_price) if agent_current_price else None
+                    )
+                    if agent_current_price is not None and agent_current_price <= 0:
+                        agent_current_price = None
+                except (TypeError, ValueError):
+                    agent_current_price = None
+                if agent_current_price is not None:
+                    try:
+                        initial_context["computed_trade_levels"] = compute_trade_levels(
+                            trend_result, agent_current_price
+                        ).to_dict()
+                    except Exception as e:
+                        logger.debug(f"[{code}] Agent mode: 计算系统参考位失败（忽略）: {e}")
+            track_record = self._build_track_record_context(code)
+            if track_record:
+                initial_context["track_record"] = track_record
+            earnings_calendar_context = self._build_earnings_calendar_context(code)
+            if earnings_calendar_context:
+                initial_context["earnings_calendar"] = earnings_calendar_context
+
             # Agent path: inject social sentiment as news_context so both
             # executor (_build_user_message) and orchestrator (ctx.set_data)
             # can consume it through the existing news_context channel
@@ -1609,6 +1860,8 @@ class StockAnalysisPipeline:
                     result.market_structure_context = market_structure_context
                 result.market_phase_summary = market_phase_summary
                 result.analysis_context_pack_overview = analysis_context_pack_overview
+                # 与 legacy Step 7.8 对齐：财报临近标注（annotate-not-veto）
+                self._annotate_earnings_risk(result, earnings_calendar_context)
                 final_action = normalize_decision_action(getattr(result, "action", None))
                 if isinstance(result.dashboard, dict):
                     result.dashboard.pop("agent_disagreement_explanation", None)

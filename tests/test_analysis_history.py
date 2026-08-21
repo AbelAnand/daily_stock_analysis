@@ -675,8 +675,8 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertEqual(item["market_phase_summary"]["phase"], "intraday")
         self.assertEqual(item["market_phase_summary"]["minutes_to_close"], 300)
 
-    def test_history_persistence_keeps_softened_operation_advice_from_guardrail(self) -> None:
-        """Conservative-market guardrail short operation_advice is persisted and exposed to history list."""
+    def test_history_persistence_keeps_annotated_operation_advice_from_guardrail(self) -> None:
+        """Conservative-market guardrail annotates risk but preserves the model's operation_advice."""
         result = self._build_result()
         result.decision_type = "buy"
         result.operation_advice = "立即买入并积极加仓"
@@ -706,8 +706,8 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         payload = service.get_history_list(stock_code="600519", page=1, limit=10)
 
         self.assertEqual(payload["total"], 1)
-        self.assertEqual(payload["items"][0]["operation_advice"], "观望")
-        self.assertLessEqual(len(payload["items"][0]["operation_advice"]), 20)
+        # 新契约：守门只做标注，模型的操作建议原样持久化
+        self.assertEqual(payload["items"][0]["operation_advice"], "立即买入并积极加仓")
 
         with self.db.get_session() as session:
             row = session.query(AnalysisHistory).filter(
@@ -716,7 +716,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
             if row is None:
                 self.fail("未找到保存的历史记录")
             self.assertEqual(row.id, saved)
-            self.assertEqual(row.operation_advice, "观望")
+            self.assertEqual(row.operation_advice, "立即买入并积极加仓")
 
     def test_market_review_history_can_be_filtered_without_stock_records(self) -> None:
         """Market review records should be queryable as a dedicated history collection."""

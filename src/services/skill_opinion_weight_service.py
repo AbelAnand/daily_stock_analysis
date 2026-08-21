@@ -21,11 +21,19 @@ from src.services.skill_opinion_performance_service import (
 
 logger = logging.getLogger(__name__)
 
-_BETA_PRIOR_HITS = 15
-_BETA_PRIOR_MISSES = 15
+# Beta(5, 5) 先验：足以在最小样本量（30）附近抑制噪声——满分 30/30 的命中记录
+# 只能得到 direction score 0.75 而不是 1.0——但又不会把真实证据完全压平。
+# 旧的 Beta(15, 15) 先验会把满分最小样本收缩到 0.5，配合 [1/1.2, 1.2] 的钳位，
+# 已被验证的优势几乎无法改变技能权重（反馈回路名存实亡）。
+_BETA_PRIOR_HITS = 5
+_BETA_PRIOR_MISSES = 5
 _BETA_PRIOR_SIZE = _BETA_PRIOR_HITS + _BETA_PRIOR_MISSES
 _UNABLE_PENALTY = 0.25
-MAX_SKILL_OPINION_WEIGHT_FACTOR = 1.2
+# 钳位从 1.2 放宽到 1.6：持续命中的技能最多可放大到 1.6 倍影响力，
+# 持续失误的技能最低压到 1/1.6 = 0.625 倍（约 [0.6, 1.6]）。上下界保持
+# 对数对称（MIN = 1/MAX），且所有防退化护栏（样本充分性、有限性校验、
+# 消费端二次钳位）原样保留，权重不会失控。
+MAX_SKILL_OPINION_WEIGHT_FACTOR = 1.6
 MIN_SKILL_OPINION_WEIGHT_FACTOR = (
     1.0 / MAX_SKILL_OPINION_WEIGHT_FACTOR
 )
