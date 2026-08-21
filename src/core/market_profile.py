@@ -44,9 +44,9 @@ US_PROFILE = MarketProfile(
     region="us",
     mood_index_code="SPX",
     news_queries=[
-        "美股 大盘",
-        "US stock market",
-        "S&P 500 NASDAQ",
+        "US stock market today",
+        "S&P 500 Nasdaq Dow market recap",
+        "Wall Street stocks market news",
     ],
     prompt_index_hint="Analyze the key moves in the S&P 500, Nasdaq, Dow, and other major indices.",
     has_market_stats=False,
