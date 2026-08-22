@@ -458,6 +458,31 @@ class BacktestResult(Base):
     )
 
 
+class PaperTradeRecord(Base):
+    """Audit trail for paper-trading execution of decision signals (Alpaca paper accounts)."""
+
+    __tablename__ = 'paper_trades'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=utc_naive_now, index=True)
+    account = Column(String(32), index=True)
+    symbol = Column(String(16), nullable=False, index=True)
+    signal_id = Column(Integer, index=True)
+    action = Column(String(16))
+    side = Column(String(8))
+    qty = Column(Float)
+    limit_price = Column(Float)
+    stop_price = Column(Float)
+    target_price = Column(Float)
+    risk_usd = Column(Float)
+    r_multiple = Column(Float)
+    status = Column(String(16), nullable=False, default='skipped', index=True)
+    reason = Column(Text)
+    order_id = Column(String(64), index=True)
+    dry_run = Column(Boolean, default=False)
+    raw_json = Column(Text)
+
+
 class BacktestSummary(Base):
     """回测汇总指标（按股票或全局）。"""
 

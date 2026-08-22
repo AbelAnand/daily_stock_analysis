@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] Paper-trading execution: after the daily run, buy/sell decision signals are placed on an Alpaca paper account as bracket orders sized to PAPER_TRADING_RISK_PER_TRADE_USD (opt-in via PAPER_TRADING_ENABLED; see docs/paper-trading.md).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->

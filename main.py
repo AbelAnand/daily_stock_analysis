@@ -777,6 +777,43 @@ def _run_outcome_scoring(config: Config) -> None:
         logger.warning(f"Backtest summary refresh failed (ignored): {exc}")
 
 
+def _run_paper_trading(config: Config, stock_codes: Optional[List[str]], *, notify: bool = True) -> None:
+    """Execute today's decision signals on an Alpaca PAPER account (PAPER_TRADING_ENABLED).
+
+    Runs after outcome scoring. Any failure is logged and never affects the analysis run.
+    """
+    try:
+        from src.services.paper_trading_service import (
+            PaperTradingService,
+            PaperTradingSettings,
+            format_summary,
+        )
+
+        settings = PaperTradingSettings.from_env()
+        if not settings.enabled:
+            return
+        if not stock_codes:
+            logger.info("Paper trading: no stock codes for this run; nothing to execute")
+            return
+        logger.info(
+            "Starting paper trading execution (account=%s, risk/trade=$%.0f, dry_run=%s)...",
+            settings.account, settings.risk_per_trade_usd, settings.dry_run,
+        )
+        summary = PaperTradingService(settings).run(list(stock_codes))
+        text = format_summary(summary)
+        if text:
+            logger.info("Paper trading summary:\n%s", text)
+        if text and notify and summary.get("error") != "disabled":
+            try:
+                from src.notification import NotificationService
+
+                NotificationService().send(text)
+            except Exception as exc:
+                logger.warning(f"Paper trading summary notification failed (ignored): {exc}")
+    except Exception as exc:
+        logger.warning(f"Paper trading execution failed (ignored): {exc}")
+
+
 def run_full_analysis(
     config: Config,
     args: argparse.Namespace,
@@ -819,6 +856,10 @@ def run_full_analysis(
     def _return_with_auto_backtest(result: bool) -> bool:
         _run_auto_backtest(config)
         _run_outcome_scoring(config)
+        if result:
+            _run_paper_trading(
+                config, stock_codes, notify=not getattr(args, "no_notify", False)
+            )
         return result
 
     try:
