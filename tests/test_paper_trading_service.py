@@ -22,10 +22,11 @@ class FakeBroker:
     label = "B"
     account_number = "PA_TEST"
 
-    def __init__(self, equity=30000.0, positions=None, open_orders=None):
+    def __init__(self, equity=30000.0, positions=None, open_orders=None, prices=None):
         self._equity = equity
         self._positions = positions or {}
         self._open_orders = open_orders or []
+        self._prices = prices or {}
         self.submitted = []
         self.cancelled = []
         self.closed = []
@@ -53,6 +54,9 @@ class FakeBroker:
 
     def cancel_order(self, order_id):
         self.cancelled.append(order_id)
+
+    def latest_price(self, symbol):
+        return self._prices.get(symbol)
 
 
 class FakeSignals:
@@ -209,6 +213,59 @@ class ExitTestCase(unittest.TestCase):
         self.assertEqual(summary["cancelled_stale"], 1)
         self.assertEqual(broker.cancelled, ["old"])
 
+    def test_cancelled_stale_entry_does_not_block_fresh_signal_same_run(self):
+        # Regression: the stale MSFT entry (and its bracket legs) are cancelled
+        # this run, so a fresh buy signal for MSFT must be executed, not
+        # skipped as "open order already pending".
+        broker = FakeBroker(open_orders=[
+            OpenOrder("old", "MSFT", "buy", 5, NOW - timedelta(days=4)),
+            OpenOrder("old-leg", "MSFT", "sell", 5, NOW - timedelta(days=4)),
+            OpenOrder("live", "GOOGL", "buy", 5, NOW - timedelta(days=1)),
+        ])
+        summary = _service(broker=broker, signals={
+            "MSFT": _signal("MSFT"), "GOOGL": _signal("GOOGL"),
+        }).run(["MSFT", "GOOGL"])
+        by_symbol = {d["symbol"]: d for d in summary["decisions"]}
+        self.assertEqual(broker.cancelled, ["old"])
+        self.assertEqual(by_symbol["MSFT"]["status"], "submitted")
+        self.assertEqual(by_symbol["GOOGL"]["status"], "skipped")
+        self.assertIn("pending", by_symbol["GOOGL"]["reason"])
+
+
+class ChaseTestCase(unittest.TestCase):
+    def test_price_above_entry_chases_with_marketable_limit(self):
+        # planned entry 311.5, market at 312 -> limit = 312 * 1.003 = 312.94,
+        # R:R = (333.96 - 312.936) / (312.936 - 299.91) ≈ 1.61, still >= 1.5
+        broker = FakeBroker(prices={"AAPL": 312.0})
+        d = _service(broker=broker, signals={"AAPL": _signal("AAPL")}).run(["AAPL"])["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertAlmostEqual(d["limit_price"], round(312.0 * 1.003, 2))
+        self.assertEqual(d["stop_price"], 299.91)
+        self.assertEqual(d["target_price"], 333.96)
+        # sizing uses the chased entry: risk/share = 312.936 - 299.91
+        self.assertLessEqual(d["risk_usd"], 500)
+        self.assertIn("chased", d["reason"])
+
+    def test_chase_skipped_when_rr_degrades_below_min(self):
+        # market ran to 325: R:R = (333.96-325.975)/(325.975-299.91) ≈ 0.31
+        broker = FakeBroker(prices={"AAPL": 325.0})
+        d = _service(broker=broker, signals={"AAPL": _signal("AAPL")}).run(["AAPL"])["decisions"][0]
+        self.assertEqual(d["status"], "skipped")
+        self.assertIn("ran past entry", d["reason"])
+        self.assertEqual(broker.submitted, [])
+
+    def test_price_at_or_below_entry_keeps_planned_limit(self):
+        broker = FakeBroker(prices={"AAPL": 305.0})
+        d = _service(broker=broker, signals={"AAPL": _signal("AAPL")}).run(["AAPL"])["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertEqual(d["limit_price"], 311.5)
+
+    def test_missing_quote_falls_back_to_planned_limit(self):
+        broker = FakeBroker()  # latest_price returns None
+        d = _service(broker=broker, signals={"AAPL": _signal("AAPL")}).run(["AAPL"])["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertEqual(d["limit_price"], 311.5)
+
 
 class PersistenceAndFormatTestCase(unittest.TestCase):
     def test_every_decision_is_persisted(self):
@@ -226,9 +283,10 @@ class PersistenceAndFormatTestCase(unittest.TestCase):
         self.assertNotIn("DRY RUN", text)
 
     def test_settings_from_env(self):
-        env = {"PAPER_TRADING_ENABLED": "true", "PAPER_TRADING_ACCOUNT": "b", "PAPER_TRADING_RISK_PER_TRADE_USD": "500", "PAPER_TRADING_MAX_POSITION_PCT": "25"}
+        env = {"PAPER_TRADING_ENABLED": "true", "PAPER_TRADING_ACCOUNT": "b", "PAPER_TRADING_RISK_PER_TRADE_USD": "500", "PAPER_TRADING_MAX_POSITION_PCT": "25", "PAPER_TRADING_CHASE_PCT": "0.5"}
         s = PaperTradingSettings.from_env(env)
         self.assertTrue(s.enabled); self.assertEqual(s.account, "B"); self.assertEqual(s.max_position_pct, 25.0)
+        self.assertEqual(s.chase_pct, 0.5)
 
 
 if __name__ == "__main__":

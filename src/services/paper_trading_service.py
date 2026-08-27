@@ -5,9 +5,15 @@ Paper-trading execution of daily decision signals via the Alpaca API.
 Runs after the daily analysis. For each analyzed US symbol it reads the latest
 active decision signal and turns it into an order on an Alpaca PAPER account:
 
-- buy / add  -> bracket order: GTC limit entry at the top of the entry range with
-                an attached stop-loss and take-profit. Sized so that a stop-out
-                loses at most ``risk_per_trade_usd`` (default $500).
+- buy / add  -> bracket order: GTC limit entry with an attached stop-loss and
+                take-profit, sized so that a stop-out loses at most
+                ``risk_per_trade_usd`` (default $500). The limit is placed at the
+                top of the entry range; if the market already trades above it,
+                the entry *chases*: a marketable limit at the latest price plus
+                ``chase_pct`` percent, but only while the R:R recomputed at that
+                price still clears ``min_r_multiple``. Signals refresh daily, so
+                an unfilled chase is repriced every morning instead of resting
+                below the market for days.
 - reduce     -> sell half of an existing position (market).
 - sell       -> close the position (market).
 - hold/watch -> no order.
@@ -59,6 +65,7 @@ class PaperTradingSettings:
     entry_ttl_days: int = 3             # cancel unfilled entries older than this
     dry_run: bool = False
     min_r_multiple: float = 1.5
+    chase_pct: float = 0.3              # marketable-limit buffer above the latest price when chasing
     kill_switch_path: str = KILL_SWITCH_DEFAULT
 
     @classmethod
@@ -94,6 +101,7 @@ class PaperTradingSettings:
             entry_ttl_days=_int("PAPER_TRADING_ENTRY_TTL_DAYS", 3),
             dry_run=_bool("PAPER_TRADING_DRY_RUN", False),
             min_r_multiple=_float("PAPER_TRADING_MIN_R_MULTIPLE", 1.5),
+            chase_pct=_float("PAPER_TRADING_CHASE_PCT", 0.3),
             kill_switch_path=str(env.get("PAPER_TRADING_KILL_SWITCH") or KILL_SWITCH_DEFAULT),
         )
 
@@ -126,6 +134,8 @@ class AlpacaPaperBroker:
         from alpaca.trading.client import TradingClient  # lazy import: optional dependency
 
         self.label = label
+        self._key_id, self._secret_key = key_id, secret_key
+        self._data = None
         self._tc = TradingClient(key_id, secret_key, paper=True)
         acct = self._tc.get_account()
         self.account_number = str(acct.account_number)
@@ -172,6 +182,22 @@ class AlpacaPaperBroker:
     def is_market_open(self) -> bool:
         return bool(self._tc.get_clock().is_open)
 
+    def latest_price(self, symbol: str) -> Optional[float]:
+        """Latest trade price from the Alpaca data API, or None when unavailable."""
+        try:
+            if self._data is None:
+                from alpaca.data.historical import StockHistoricalDataClient
+
+                self._data = StockHistoricalDataClient(self._key_id, self._secret_key)
+            from alpaca.data.requests import StockLatestTradeRequest
+
+            trades = self._data.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol))
+            price = float(trades[symbol].price)
+            return price if price > 0 else None
+        except Exception as exc:
+            logger.warning("Latest price for %s unavailable: %s", symbol, exc)
+            return None
+
     # --- orders ----------------------------------------------------------
     def submit_bracket_buy(
         self, symbol: str, qty: int, limit_price: float, stop_price: float, target_price: float
@@ -202,10 +228,24 @@ class AlpacaPaperBroker:
 
     def close_position(self, symbol: str) -> str:
         # Cancel attached bracket legs first; Alpaca rejects closing a position
-        # that still has open orders against it.
+        # that still has open orders against it. Cancels are asynchronous and
+        # the OCO stop leg (status "held", invisible to the open-orders query)
+        # keeps the shares held_for_orders until the cancel propagates, so
+        # retry the close until the hold releases.
+        import time
+
         self.cancel_symbol_orders(symbol)
-        resp = self._tc.close_position(symbol)
-        return str(getattr(resp, "id", "") or "")
+        last_exc: Optional[Exception] = None
+        for attempt in range(10):
+            try:
+                resp = self._tc.close_position(symbol)
+                return str(getattr(resp, "id", "") or "")
+            except Exception as exc:
+                if "insufficient qty" not in str(exc) and "40310000" not in str(exc):
+                    raise
+                last_exc = exc
+                time.sleep(1 + attempt)
+        raise RuntimeError(f"close {symbol}: shares still held for orders after cancel: {last_exc}")
 
     def cancel_symbol_orders(self, symbol: str) -> int:
         count = 0
@@ -372,8 +412,14 @@ class PaperTradingService:
             summary["error"] = f"broker_unavailable: {exc}"
             return summary
 
-        summary["cancelled_stale"] = self._cancel_stale_entries(open_orders)
-        open_symbols = {o.symbol for o in open_orders}
+        cancelled = self._cancel_stale_entries(open_orders)
+        summary["cancelled_stale"] = len(cancelled)
+        # A just-cancelled entry must not block a fresh signal for the same
+        # symbol this run. Exclude by symbol, not order id: the snapshot also
+        # holds the cancelled parent's bracket legs, which die with it. Held
+        # positions are still protected by the "already holding" check.
+        cancelled_symbols = {o.symbol for o in cancelled}
+        open_symbols = {o.symbol for o in open_orders if o.symbol not in cancelled_symbols}
         open_position_count = len(positions)
 
         decisions: List[TradeDecision] = []
@@ -479,14 +525,34 @@ class PaperTradingService:
         if entry is None or stop is None or target is None:
             d.reason = "missing entry/stop/target"
             return d
+
+        # If the market already trades above the planned entry, chase with a
+        # marketable limit instead of resting below the market: latest price
+        # plus chase_pct, kept only while the R:R at that price still clears
+        # min_r_multiple. At or below the planned entry the original limit is
+        # already marketable and fills on its own.
+        price = None
+        try:
+            price = self.broker.latest_price(symbol)
+        except Exception as exc:
+            logger.warning("Paper trading: quote lookup failed for %s: %s", symbol, exc)
+        if price is not None and price > entry:
+            chased = price * (1 + self.settings.chase_pct / 100.0)
+            d.extra["chased"] = {"planned_entry": entry, "latest_price": price}
+            entry = chased
+
         if not (stop < entry < target):
-            d.reason = f"invalid levels (stop {stop}, entry {entry}, target {target})"
+            d.reason = f"invalid levels (stop {stop}, entry {entry:.2f}, target {target})"
             return d
         risk_per_share = entry - stop
         r_multiple = (target - entry) / risk_per_share
         d.r_multiple = round(r_multiple, 2)
         if r_multiple < self.settings.min_r_multiple:
-            d.reason = f"R:R {r_multiple:.2f} below {self.settings.min_r_multiple}"
+            if "chased" in d.extra:
+                d.reason = (f"price ${price:.2f} ran past entry {d.extra['chased']['planned_entry']}: "
+                            f"R:R {r_multiple:.2f} below {self.settings.min_r_multiple}")
+            else:
+                d.reason = f"R:R {r_multiple:.2f} below {self.settings.min_r_multiple}"
             return d
 
         qty_by_risk = int(math.floor(self.settings.risk_per_trade_usd / risk_per_share))
@@ -500,7 +566,8 @@ class PaperTradingService:
         d.side, d.qty = "buy", qty
         d.limit_price, d.stop_price, d.target_price = _round_price(entry), _round_price(stop), _round_price(target)
         d.risk_usd = round(qty * risk_per_share, 2)
-        d.status, d.reason = "planned", "bracket entry"
+        d.status = "planned"
+        d.reason = "bracket entry (chased to market)" if "chased" in d.extra else "bracket entry"
         d.extra.update({"entry_low": entry_low, "entry_high": entry_high, "qty_by_risk": qty_by_risk, "qty_by_notional": qty_by_notional})
         return d
 
@@ -541,9 +608,9 @@ class PaperTradingService:
             d.status, d.reason = "error", f"{d.reason}; submit failed: {str(exc)[:200]}"
             logger.error("Paper trading: order for %s failed: %s", d.symbol, exc)
 
-    def _cancel_stale_entries(self, open_orders: List[OpenOrder]) -> int:
+    def _cancel_stale_entries(self, open_orders: List[OpenOrder]) -> List[OpenOrder]:
         cutoff = self.now() - timedelta(days=self.settings.entry_ttl_days)
-        cancelled = 0
+        cancelled: List[OpenOrder] = []
         for o in open_orders:
             if o.side != "buy" or o.submitted_at is None:
                 continue
@@ -554,7 +621,7 @@ class PaperTradingService:
                     continue
                 try:
                     self.broker.cancel_order(o.id)
-                    cancelled += 1
+                    cancelled.append(o)
                     logger.info("Paper trading: cancelled stale entry %s %s (submitted %s)", o.symbol, o.id, submitted)
                 except Exception as exc:
                     logger.warning("Paper trading: cancel %s failed: %s", o.id, exc)
