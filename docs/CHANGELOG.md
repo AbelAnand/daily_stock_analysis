@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 - [新功能] Paper-trading execution: after the daily run, buy/sell decision signals are placed on an Alpaca paper account as bracket orders sized to PAPER_TRADING_RISK_PER_TRADE_USD (opt-in via PAPER_TRADING_ENABLED; see docs/paper-trading.md).
-- [改进] Paper trading: when the market trades above the planned entry, the bracket entry chases with a marketable limit (latest price + PAPER_TRADING_CHASE_PCT %, default 0.3) while the recomputed R:R still clears PAPER_TRADING_MIN_R_MULTIPLE, instead of resting a below-market limit that rarely fills.
+- [改进] Paper trading: when the market trades above the planned entry, the bracket entry chases with a marketable limit (latest price + PAPER_TRADING_CHASE_PCT %, default 0.3) instead of resting a below-market limit that rarely fills; the plan must clear PAPER_TRADING_MIN_R_MULTIPLE at the planned entry, and execution accepts R:R degradation at the chased price down to PAPER_TRADING_CHASE_MIN_R (default 1.3).
 - [修复] Paper trading: an entry cancelled by the staleness TTL no longer blocks a fresh buy signal for the same symbol within the same run.
 - [修复] Paper trading: closing a bracket-held position retries while Alpaca releases the shares held by the OCO stop leg after leg cancellation; previously every sell signal on a bracket position failed with "insufficient qty available".
 

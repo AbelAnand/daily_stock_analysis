@@ -11,7 +11,9 @@ active decision signal and turns it into an order on an Alpaca PAPER account:
                 top of the entry range; if the market already trades above it,
                 the entry *chases*: a marketable limit at the latest price plus
                 ``chase_pct`` percent, but only while the R:R recomputed at that
-                price still clears ``min_r_multiple``. Signals refresh daily, so
+                price still clears ``chase_min_r_multiple`` (the plan itself
+                must clear ``min_r_multiple`` at the planned entry either way).
+                Signals refresh daily, so
                 an unfilled chase is repriced every morning instead of resting
                 below the market for days.
 - reduce     -> sell half of an existing position (market).
@@ -64,8 +66,9 @@ class PaperTradingSettings:
     max_position_pct: float = 20.0      # max % of equity in one name
     entry_ttl_days: int = 3             # cancel unfilled entries older than this
     dry_run: bool = False
-    min_r_multiple: float = 1.5
+    min_r_multiple: float = 1.5         # plan-quality gate at the planned entry
     chase_pct: float = 0.3              # marketable-limit buffer above the latest price when chasing
+    chase_min_r_multiple: float = 1.3   # execution floor for R:R recomputed at the chased price
     kill_switch_path: str = KILL_SWITCH_DEFAULT
 
     @classmethod
@@ -102,6 +105,7 @@ class PaperTradingSettings:
             dry_run=_bool("PAPER_TRADING_DRY_RUN", False),
             min_r_multiple=_float("PAPER_TRADING_MIN_R_MULTIPLE", 1.5),
             chase_pct=_float("PAPER_TRADING_CHASE_PCT", 0.3),
+            chase_min_r_multiple=_float("PAPER_TRADING_CHASE_MIN_R", 1.3),
             kill_switch_path=str(env.get("PAPER_TRADING_KILL_SWITCH") or KILL_SWITCH_DEFAULT),
         )
 
@@ -525,12 +529,25 @@ class PaperTradingService:
         if entry is None or stop is None or target is None:
             d.reason = "missing entry/stop/target"
             return d
+        if not (stop < entry < target):
+            d.reason = f"invalid levels (stop {stop}, entry {entry}, target {target})"
+            return d
+
+        # Plan-quality gate at the planned entry: the plan itself must promise
+        # at least min_r_multiple.
+        plan_r = (target - entry) / (entry - stop)
+        if plan_r < self.settings.min_r_multiple:
+            d.r_multiple = round(plan_r, 2)
+            d.reason = f"R:R {plan_r:.2f} below {self.settings.min_r_multiple}"
+            return d
 
         # If the market already trades above the planned entry, chase with a
         # marketable limit instead of resting below the market: latest price
-        # plus chase_pct, kept only while the R:R at that price still clears
-        # min_r_multiple. At or below the planned entry the original limit is
-        # already marketable and fills on its own.
+        # plus chase_pct. Execution accepts R:R degradation at the chased
+        # price down to chase_min_r_multiple (a valid plan may be taken at a
+        # slightly worse price; a bad plan is rejected above regardless). At
+        # or below the planned entry the original limit is already marketable
+        # and fills on its own.
         price = None
         try:
             price = self.broker.latest_price(symbol)
@@ -538,22 +555,17 @@ class PaperTradingService:
             logger.warning("Paper trading: quote lookup failed for %s: %s", symbol, exc)
         if price is not None and price > entry:
             chased = price * (1 + self.settings.chase_pct / 100.0)
+            chase_r = (target - chased) / (chased - stop) if stop < chased < target else -1.0
+            if chase_r < self.settings.chase_min_r_multiple:
+                d.r_multiple = round(chase_r, 2)
+                d.reason = (f"price ${price:.2f} ran past entry {entry}: "
+                            f"R:R {chase_r:.2f} below chase floor {self.settings.chase_min_r_multiple}")
+                return d
             d.extra["chased"] = {"planned_entry": entry, "latest_price": price}
             entry = chased
 
-        if not (stop < entry < target):
-            d.reason = f"invalid levels (stop {stop}, entry {entry:.2f}, target {target})"
-            return d
         risk_per_share = entry - stop
-        r_multiple = (target - entry) / risk_per_share
-        d.r_multiple = round(r_multiple, 2)
-        if r_multiple < self.settings.min_r_multiple:
-            if "chased" in d.extra:
-                d.reason = (f"price ${price:.2f} ran past entry {d.extra['chased']['planned_entry']}: "
-                            f"R:R {r_multiple:.2f} below {self.settings.min_r_multiple}")
-            else:
-                d.reason = f"R:R {r_multiple:.2f} below {self.settings.min_r_multiple}"
-            return d
+        d.r_multiple = round((target - entry) / risk_per_share, 2)
 
         qty_by_risk = int(math.floor(self.settings.risk_per_trade_usd / risk_per_share))
         max_notional = equity * self.settings.max_position_pct / 100.0

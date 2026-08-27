@@ -6,7 +6,7 @@ Opt-in execution layer that turns the daily decision signals into orders on an *
 
 | Signal action | Order |
 |---|---|
-| `buy` / `add` | GTC **bracket** order: limit entry with attached stop-loss and take-profit. The limit sits at the top of the entry range; if the market already trades above it, the entry **chases** — a marketable limit at the latest price + `PAPER_TRADING_CHASE_PCT` % — as long as the reward:risk recomputed at that price still clears `PAPER_TRADING_MIN_R_MULTIPLE`. Skipped if already holding the symbol or an order is pending. |
+| `buy` / `add` | GTC **bracket** order: limit entry with attached stop-loss and take-profit. The limit sits at the top of the entry range; if the market already trades above it, the entry **chases** — a marketable limit at the latest price + `PAPER_TRADING_CHASE_PCT` % — as long as the reward:risk recomputed at that price still clears `PAPER_TRADING_CHASE_MIN_R` (the plan itself must clear `PAPER_TRADING_MIN_R_MULTIPLE` at the planned entry). Skipped if already holding the symbol or an order is pending. |
 | `reduce` | Market sell of half the position. |
 | `sell` | Close the position (cancels bracket legs first). |
 | `hold` / `watch` / `avoid` | No order. |

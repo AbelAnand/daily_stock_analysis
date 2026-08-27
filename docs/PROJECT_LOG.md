@@ -77,6 +77,13 @@ Implemented as four parallel work packages plus a wiring pass.
 - Known limitation: on strong gap-up days the R:R floor still blocks entry (that is the anti-chasing discipline working); the lever for more aggression is `PAPER_TRADING_MIN_R_MULTIPLE`, deliberately left at 1.5 pending user choice.
 - **Live chase test (user-requested, before commit)**: fabricated in-memory 1-share signal against the real account — chased limit $315.40 (quote $314.455 + 0.3 %) accepted by Alpaca, filled in <2 s @ $314.46, target leg `new` / stop leg `held` as expected. The cleanup step then exposed a latent **sell-path bug**: `close_position` cancelled the visible leg and immediately tried to close while the OCO stop (status `held`, invisible to the open-orders query) still held the shares → 403 "insufficient qty available". Every real sell signal on a bracket position would have failed. Fixed with a bounded retry loop in `AlpacaPaperBroker.close_position` waiting for the hold to release; verified live by closing the test position (clean: no position, no dangling orders). Net cost of the round trip: a few cents of paper spread.
 
+## 2026-08-27 — Profit replay of the week's signals; split R:R floor (chase ≥ 1.3)
+
+- User asked for a profit test of the chase behavior. Replayed all 9 real buy signals (8/21–8/27) against actual IEX daily bars with real sizing and one-position-per-symbol semantics, marked to market 8/27 midday:
+  - Reality (race bug + passive limits): **-$45**. Old policy bug-free: +$202 (but its MSFT winner required a lucky same-day dip to the limit). Chase with 1.5 floor as deployed: +$146 — refused Fri AAPL (R:R 1.39 at Mon open) and Fri MSFT (1.40), the week's two biggest winners. Chase with 1.3 floor: **+$273** (MSFT from Mon open +$251). Floor 1.0 added nothing over 1.3.
+  - Pattern: strong signals opened above their planned entries and never pulled back; passive limits missed them entirely, and a 1.5 floor at the *chased* price re-blocked them by margins (0.10–0.11 R:R) inside target-estimation noise. Caveats recorded: 4 trading days, 3 correlated mega-caps, an up week — directional evidence only.
+- User decision: **split floor**. Plan-quality gate stays `PAPER_TRADING_MIN_R_MULTIPLE=1.5` at the planned entry; execution may chase while R:R at the chased price ≥ new `PAPER_TRADING_CHASE_MIN_R` (default 1.3). Implemented in `_decide` (plan gate now explicitly evaluated at planned entry, chase gate at chased price), `.env.example`, docs, changelog; new unit test covers the 1.3–1.5 band.
+
 ## Open decisions
 
 - **Real watchlist** — `STOCK_LIST` is still the temporary sample.

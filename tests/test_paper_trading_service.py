@@ -246,6 +246,16 @@ class ChaseTestCase(unittest.TestCase):
         self.assertLessEqual(d["risk_usd"], 500)
         self.assertIn("chased", d["reason"])
 
+    def test_chase_accepts_rr_between_chase_floor_and_plan_floor(self):
+        # plan R:R at entry 311.5 is 1.94 (passes the 1.5 plan gate); market at
+        # 313.2 -> chased 314.14, R:R ≈ 1.39: below 1.5 but above the 1.3
+        # chase floor -> still submitted.
+        broker = FakeBroker(prices={"AAPL": 313.2})
+        d = _service(broker=broker, signals={"AAPL": _signal("AAPL")}).run(["AAPL"])["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertAlmostEqual(d["limit_price"], round(313.2 * 1.003, 2))
+        self.assertTrue(1.3 <= d["r_multiple"] < 1.5)
+
     def test_chase_skipped_when_rr_degrades_below_min(self):
         # market ran to 325: R:R = (333.96-325.975)/(325.975-299.91) ≈ 0.31
         broker = FakeBroker(prices={"AAPL": 325.0})
