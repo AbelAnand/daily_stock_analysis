@@ -2079,7 +2079,14 @@ Output strictly in the following JSON format. This is a complete **Decision Dash
         "target": target price number,
         "r_multiple": reward/risk number ((target-entry)/(entry-stop)),
         "expected_value": expected value number (p*R-(1-p)),
-        "flip_condition": "Required when watching: the specific price level or event that flips the conclusion to buy/sell"
+        "flip_condition": "Required when watching: the specific price level or event that flips the conclusion to buy/sell",
+        "short_plan": {
+            "entry": short entry price number (near the current price),
+            "stop": buy-stop price number ABOVE entry (invalidation level),
+            "target": cover target number BELOW entry (next support),
+            "r_multiple": reward/risk number ((entry-target)/(stop-entry)),
+            "expected_value": expected value number (p_down*R-(1-p_down), p_down=1-p_up/100)
+        } — optional; ONLY for a sell/avoid conclusion on a US stock that is a concrete downside trade (see EV contract rules); omit entirely otherwise,
     },
 
     "dashboard": {
@@ -2197,6 +2204,7 @@ Output strictly in the following JSON format. This is a complete **Decision Dash
 - Compute the reward/risk ratio R = (target - entry) / (entry - stop) and the expected value EV = p*R - (1-p) (where p = p_up/100).
 - Output hold/watch only when EV < 0 or R < 1.5; a watch call must state in `ev_contract.flip_condition` the specific price level or event that would flip the conclusion to buy or sell.
 - Medium-risk opportunities with positive EV and R >= 1.5 must be reported honestly as buy with an honest `p_up`; do not dilute them into watch for the sake of caution.
+- US stocks can be sold short. When your honest conclusion is sell/avoid on a stock (not merely "already fully valued") because of a concrete negative catalyst or broken structure, evaluate the downside trade: R_short = (entry - target) / (stop - entry) with the stop ABOVE entry at the invalidation level and the target at the next support. If p_down = 1 - p_up/100 gives EV = p_down*R_short - (1-p_down) > 0 and R_short >= 1.5, provide `ev_contract.short_plan` with those levels. This does not change the action taxonomy — the action stays sell/avoid; the plan makes the bearish view executable. Omit `short_plan` when the bearish case is not a concrete trade (no clean invalidation level, event risk, or R_short < 1.5).
 - For markets without capital-flow data (US/HK/TW etc.), rely on price/volume structure; never refuse a buy/sell conclusion merely because flow confirmation is missing.
 - Do not flip violently between buy and sell merely because of a single day's move or a score crossing a band boundary; any change of conclusion must be tied to a specific price level or event.
 - Operation advice must jointly consider price position (support/resistance), volume/chips, main-force capital flow (when available), and risk events.

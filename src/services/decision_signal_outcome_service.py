@@ -405,6 +405,12 @@ class DecisionSignalOutcomeService:
     def _evaluate_signal_horizon(self, signal: DecisionSignalRecord, horizon: str) -> Dict[str, Any]:
         base = self._snapshot_fields(signal, horizon)
         direction = self._direction_for_action(signal.action)
+        # A bearish signal carrying an executable short plan asserts an actual
+        # decline, not merely "not up" — score it against the stronger claim.
+        if direction == "not_up":
+            metadata = self._json_loads(getattr(signal, "metadata_json", None))
+            if isinstance(metadata, dict) and isinstance(metadata.get("short_plan"), dict):
+                direction = "down"
         if direction is None:
             return self._unable_fields(base, reason="non_directional_action")
 

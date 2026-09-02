@@ -742,7 +742,7 @@ class BacktestEngine:
                 return "miss", False
             return "neutral", None
 
-        if direction_expected == "not_up":
+        if direction_expected in ("not_up", "down"):
             if r <= -band:
                 return "hit", True
             if r >= band:

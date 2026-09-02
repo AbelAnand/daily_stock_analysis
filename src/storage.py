@@ -483,6 +483,20 @@ class PaperTradeRecord(Base):
     raw_json = Column(Text)
 
 
+class NewsDiscoveryRun(Base):
+    """Audit trail for news-driven US stock discovery (see news_discovery_service)."""
+
+    __tablename__ = 'news_discovery_runs'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=utc_naive_now, index=True)
+    model = Column(String(128))
+    news_count = Column(Integer)
+    shortlist_json = Column(Text)
+    raw_json = Column(Text)
+    error = Column(Text)
+
+
 class BacktestSummary(Base):
     """回测汇总指标（按股票或全局）。"""
 
@@ -2719,6 +2733,70 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             
             return list(results), total
     
+    def get_latest_paper_entry(
+        self, account: Optional[str], symbol: str, side: str = 'buy'
+    ) -> Optional[PaperTradeRecord]:
+        """Most recent submitted paper-trading entry for ``symbol`` (the original stop/limit plan).
+
+        ``side`` is 'buy' for long entries, 'sell_short' for short entries. Used by
+        stop management to anchor R = |entry - initial stop| after the stop has been ratcheted.
+        """
+        with self.get_session() as session:
+            stmt = select(PaperTradeRecord).where(
+                PaperTradeRecord.symbol == str(symbol).upper(),
+                PaperTradeRecord.side == side,
+                PaperTradeRecord.status == 'submitted',
+                PaperTradeRecord.dry_run.is_(False),
+            )
+            if account:
+                stmt = stmt.where(PaperTradeRecord.account == account)
+            result = session.execute(stmt.order_by(PaperTradeRecord.id.desc())).scalars().first()
+            if result is not None:
+                session.expunge(result)
+            return result
+
+    def has_paper_entry_today(self, account: Optional[str], symbol: str) -> bool:
+        """True when a real (non-dry-run) entry for ``symbol`` was submitted today (UTC)."""
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
+        with self.get_session() as session:
+            stmt = select(PaperTradeRecord.id).where(
+                PaperTradeRecord.symbol == str(symbol).upper(),
+                PaperTradeRecord.side.in_(('buy', 'sell_short')),
+                PaperTradeRecord.status == 'submitted',
+                PaperTradeRecord.dry_run.is_(False),
+                PaperTradeRecord.created_at >= today_start,
+            )
+            if account:
+                stmt = stmt.where(PaperTradeRecord.account == account)
+            return session.execute(stmt.limit(1)).first() is not None
+
+    def get_recent_paper_entry_order_ids(
+        self, account: Optional[str], side: str, days: int
+    ) -> List[str]:
+        """Order ids of recent submitted entries of ``side`` (e.g. TTL-cancel scoping for shorts)."""
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=max(1, int(days)))
+        with self.get_session() as session:
+            stmt = select(PaperTradeRecord.order_id).where(
+                PaperTradeRecord.side == side,
+                PaperTradeRecord.status == 'submitted',
+                PaperTradeRecord.dry_run.is_(False),
+                PaperTradeRecord.order_id.is_not(None),
+                PaperTradeRecord.created_at >= cutoff,
+            )
+            if account:
+                stmt = stmt.where(PaperTradeRecord.account == account)
+            return [row[0] for row in session.execute(stmt).all()]
+
+    def list_recent_signal_symbols(self, market: str = 'us', hours: int = 36) -> List[str]:
+        """Distinct symbols with a decision signal in the last ``hours`` (for the post-open entry pass)."""
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=max(1, int(hours)))
+        with self.get_session() as session:
+            stmt = select(DecisionSignalRecord.stock_code).where(
+                DecisionSignalRecord.market == market,
+                DecisionSignalRecord.created_at >= cutoff,
+            ).distinct()
+            return sorted({str(row[0]).upper() for row in session.execute(stmt).all()})
+
     def get_analysis_history_by_id(self, record_id: int) -> Optional[AnalysisHistory]:
         """
         根据数据库主键 ID 查询单条分析历史记录

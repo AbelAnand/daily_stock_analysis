@@ -8,10 +8,12 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from src.services.paper_trading_service import (
+    BracketStop,
     OpenOrder,
     PaperTradingService,
     PaperTradingSettings,
     Position,
+    format_manage_summary,
     format_summary,
 )
 
@@ -22,14 +24,37 @@ class FakeBroker:
     label = "B"
     account_number = "PA_TEST"
 
-    def __init__(self, equity=30000.0, positions=None, open_orders=None, prices=None):
+    def __init__(self, equity=30000.0, positions=None, open_orders=None, prices=None, stops=None, market_open=True):
         self._equity = equity
         self._positions = positions or {}
         self._open_orders = open_orders or []
         self._prices = prices or {}
+        self._stops = stops or {}
+        self._market_open = market_open
         self.submitted = []
         self.cancelled = []
         self.closed = []
+        self.replaced = []
+
+    def is_market_open(self):
+        return self._market_open
+
+    def bracket_stop(self, symbol, entry_side="buy"):
+        return self._stops.get(symbol)
+
+    def submit_bracket_sell_short(self, symbol, qty, limit_price, stop_price, target_price):
+        self.submitted.append(("sell_short", symbol, qty, limit_price, stop_price, target_price))
+        return f"short-{symbol}"
+
+    def asset_shortable(self, symbol):
+        return getattr(self, "shortable", True)
+
+    def replace_stop(self, order_id, new_stop):
+        self.replaced.append((order_id, new_stop))
+        for sym, leg in self._stops.items():
+            if leg.order_id == order_id:
+                self._stops[sym] = BracketStop(order_id=f"{order_id}-r", stop_price=new_stop, status="held")
+        return f"{order_id}-r"
 
     def equity(self):
         return self._equity
@@ -83,6 +108,15 @@ class FakeDB:
 
     def get_analysis_history_by_id(self, record_id):
         return None
+
+    def get_latest_paper_entry(self, account, symbol, side="buy"):
+        return getattr(self, "entries", {}).get(symbol)
+
+    def has_paper_entry_today(self, account, symbol):
+        return symbol in getattr(self, "entries_today", set())
+
+    def get_recent_paper_entry_order_ids(self, account, side, days):
+        return list(getattr(self, "short_entry_ids", []))
 
 
 def _signal(symbol, action="buy", entry_low=308.2, entry_high=311.5, stop=299.91, target=333.96, **extra):
@@ -301,3 +335,283 @@ class PersistenceAndFormatTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _Entry:
+    def __init__(self, limit_price, stop_price):
+        self.limit_price, self.stop_price = limit_price, stop_price
+
+
+class StopManagementTestCase(unittest.TestCase):
+    """Break-even / trailing ratchet: entry 343.61, initial stop 330.47 -> R = 13.14."""
+
+    ENTRY, STOP, R = 343.61, 330.47, 13.14
+
+    def _broker(self, price, stop=None, **kw):
+        stop = self.STOP if stop is None else stop
+        return FakeBroker(
+            positions={"GOOGL": Position("GOOGL", 17, self.ENTRY)},
+            prices={"GOOGL": price},
+            stops={"GOOGL": BracketStop(order_id="stop-1", stop_price=stop, status="held", target_price=373.51)},
+            **kw,
+        )
+
+    def test_below_trigger_leaves_stop_alone(self):
+        broker = self._broker(price=self.ENTRY + 0.9 * self.R)
+        summary = _service(broker=broker).manage_positions()
+        self.assertEqual(broker.replaced, [])
+        self.assertEqual(summary["adjustments"], [])
+        self.assertEqual(summary["checked"], 1)
+
+    def test_at_trigger_moves_stop_to_breakeven_plus_buffer(self):
+        broker = self._broker(price=self.ENTRY + 1.0 * self.R)  # +1R -> trail = entry, BE buffer wins
+        db = FakeDB()
+        summary = _service(broker=broker, db=db).manage_positions()
+        self.assertEqual(len(broker.replaced), 1)
+        order_id, new_stop = broker.replaced[0]
+        self.assertEqual(order_id, "stop-1")
+        self.assertAlmostEqual(new_stop, round(self.ENTRY * 1.002, 2), places=2)
+        self.assertGreater(new_stop, self.ENTRY)  # exit is profitable, not a scratch
+        adj = summary["adjustments"][0]
+        self.assertEqual(adj["status"], "submitted")
+        self.assertEqual(adj["order_id"], "stop-1-r")
+        self.assertEqual(len(db.rows), 1)  # moves are persisted
+        self.assertEqual(db.rows[0].action, "trail_stop")
+
+    def test_further_gains_trail_by_one_r(self):
+        price = self.ENTRY + 2.5 * self.R
+        broker = self._broker(price=price, stop=344.30)  # already at break-even from an earlier pass
+        db = FakeDB()
+        db.entries = {"GOOGL": _Entry(limit_price=343.68, stop_price=self.STOP)}  # initial plan geometry
+        _service(broker=broker, db=db).manage_positions()
+        self.assertEqual(len(broker.replaced), 1)
+        _, new_stop = broker.replaced[0]
+        self.assertAlmostEqual(new_stop, round(price - 1.0 * self.R, 2), places=2)  # ~ entry + 1.5R
+        self.assertGreater(new_stop, 344.30)
+
+    def test_never_lowers_the_stop(self):
+        # Stop already trailed high; price pulls back but stays above the trigger -> no change.
+        broker = self._broker(price=self.ENTRY + 1.6 * self.R, stop=self.ENTRY + 1.2 * self.R)
+        db = FakeDB()
+        db.entries = {"GOOGL": _Entry(limit_price=343.68, stop_price=self.STOP)}
+        summary = _service(broker=broker, db=db).manage_positions()
+        self.assertEqual(broker.replaced, [])
+        self.assertEqual(summary["adjustments"], [])
+
+    def test_stop_is_capped_below_latest_price(self):
+        settings = PaperTradingSettings(enabled=True, account="B", trail_r=0.01, kill_switch_path=os.path.join(tempfile.gettempdir(), "no-such-kill-switch"))
+        price = self.ENTRY + 2.0 * self.R
+        broker = self._broker(price=price)
+        _service(settings=settings, broker=broker).manage_positions()
+        _, new_stop = broker.replaced[0]
+        self.assertLessEqual(new_stop, round(price * (1 - 0.005), 2))
+
+    def test_uses_initial_stop_from_db_after_ratchet(self):
+        # After a ratchet the live stop is 344.30; without the DB record, R would collapse
+        # to entry-344.30 (<0) and the trail would tighten wrongly. With it, R stays 13.14.
+        price = self.ENTRY + 1.2 * self.R
+        broker = self._broker(price=price, stop=344.30)
+        db = FakeDB()
+        db.entries = {"GOOGL": _Entry(limit_price=343.68, stop_price=self.STOP)}
+        summary = _service(broker=broker, db=db).manage_positions()
+        # +1.2R: trail = price - R = entry + 0.2R = 346.24 > 344.30 -> move
+        self.assertEqual(len(broker.replaced), 1)
+        self.assertAlmostEqual(broker.replaced[0][1], round(self.ENTRY + 0.2 * self.R, 2), places=1)
+        self.assertEqual(summary["adjustments"][0]["r_multiple"], 1.2)
+
+    def test_dry_run_records_but_does_not_replace(self):
+        settings = PaperTradingSettings(enabled=True, account="B", dry_run=True, kill_switch_path=os.path.join(tempfile.gettempdir(), "no-such-kill-switch"))
+        broker = self._broker(price=self.ENTRY + 1.5 * self.R)
+        summary = _service(settings=settings, broker=broker).manage_positions()
+        self.assertEqual(broker.replaced, [])
+        self.assertEqual(summary["adjustments"][0]["status"], "dry_run")
+
+    def test_market_closed_skips_everything(self):
+        broker = self._broker(price=self.ENTRY + 3 * self.R, market_open=False)
+        summary = _service(broker=broker).manage_positions()
+        self.assertEqual(summary["error"], "market_closed")
+        self.assertEqual(broker.replaced, [])
+
+    def test_unprotected_position_is_flagged(self):
+        broker = FakeBroker(positions={"AAPL": Position("AAPL", 5, 300.0)}, prices={"AAPL": 330.0})
+        summary = _service(broker=broker).manage_positions()
+        self.assertEqual(summary["adjustments"][0]["status"], "unprotected")
+        text = format_manage_summary(summary)
+        self.assertIn("NO protective stop", text)
+
+    def test_quiet_summary_is_empty_when_nothing_changed(self):
+        broker = self._broker(price=self.ENTRY)
+        summary = _service(broker=broker).manage_positions()
+        self.assertEqual(format_manage_summary(summary, quiet=True), "")
+        self.assertIn("no stop changes", format_manage_summary(summary))
+
+    def test_kill_switch_blocks_replacements(self):
+        with tempfile.NamedTemporaryFile(delete=False) as fh:
+            path = fh.name
+        try:
+            settings = PaperTradingSettings(enabled=True, account="B", kill_switch_path=path)
+            broker = self._broker(price=self.ENTRY + 3 * self.R)
+            summary = _service(settings=settings, broker=broker).manage_positions()
+            self.assertEqual(summary["error"], "kill_switch")
+            self.assertEqual(broker.replaced, [])
+        finally:
+            os.unlink(path)
+
+
+def _short_signal(symbol, action="sell", entry=100.0, stop=105.0, target=88.0, **extra):
+    sig = _signal(symbol, action=action)
+    sig["metadata"] = {"short_plan": {"entry": entry, "stop": stop, "target": target}, "plan_direction": "short"}
+    sig.update(extra)
+    return sig
+
+
+def _short_settings(**kw):
+    base = dict(enabled=True, account="B", risk_per_trade_usd=500, allow_short=True,
+                kill_switch_path=os.path.join(tempfile.gettempdir(), "no-such-kill-switch"))
+    base.update(kw)
+    return PaperTradingSettings(**base)
+
+
+class ShortEntryTestCase(unittest.TestCase):
+    def test_short_plan_becomes_short_bracket(self):
+        broker = FakeBroker(equity=30000.0)
+        svc = _service(settings=_short_settings(), broker=broker, signals={"XYZ": _short_signal("XYZ")})
+        summary = svc.run(["XYZ"])
+        d = summary["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertEqual(d["side"], "sell_short")
+        kind, sym, qty, limit, stop, target = broker.submitted[0]
+        self.assertEqual(kind, "sell_short")
+        # risk/share = 5 -> 100 by risk; notional 20% of 30k / 100 = 60 -> 60
+        self.assertEqual(qty, 60)
+        self.assertEqual((limit, stop, target), (100.0, 105.0, 88.0))
+        self.assertAlmostEqual(d["r_multiple"], 2.4)
+
+    def test_short_disabled_by_default(self):
+        broker = FakeBroker()
+        svc = _service(broker=broker, signals={"XYZ": _short_signal("XYZ")})  # default settings: allow_short False
+        summary = svc.run(["XYZ"])
+        self.assertEqual(summary["decisions"][0]["status"], "skipped")
+        self.assertIn("shorting disabled", summary["decisions"][0]["reason"])
+        self.assertEqual(broker.submitted, [])
+
+    def test_sell_without_plan_stays_no_order(self):
+        broker = FakeBroker()
+        svc = _service(settings=_short_settings(), broker=broker, signals={"XYZ": _signal("XYZ", action="sell")})
+        summary = svc.run(["XYZ"])
+        self.assertIn("no short plan", summary["decisions"][0]["reason"])
+
+    def test_short_chases_down_within_floor(self):
+        broker = FakeBroker(prices={"XYZ": 99.0})  # ran below the planned 100 entry
+        svc = _service(settings=_short_settings(), broker=broker, signals={"XYZ": _short_signal("XYZ")})
+        svc.run(["XYZ"])
+        _, _, _, limit, _, _ = broker.submitted[0]
+        self.assertAlmostEqual(limit, round(99.0 * 0.997, 2))  # chased: price - 0.3%
+
+    def test_short_chase_refused_below_floor(self):
+        broker = FakeBroker(prices={"XYZ": 91.0})  # nearly at target; chase R:R collapses
+        svc = _service(settings=_short_settings(), broker=broker, signals={"XYZ": _short_signal("XYZ")})
+        summary = svc.run(["XYZ"])
+        self.assertEqual(summary["decisions"][0]["status"], "skipped")
+        self.assertIn("chase floor", summary["decisions"][0]["reason"])
+
+    def test_not_shortable_is_skipped(self):
+        broker = FakeBroker()
+        broker.shortable = False
+        svc = _service(settings=_short_settings(), broker=broker, signals={"XYZ": _short_signal("XYZ")})
+        summary = svc.run(["XYZ"])
+        self.assertIn("not shortable", summary["decisions"][0]["reason"])
+        self.assertEqual(broker.submitted, [])
+
+    def test_bad_short_geometry_rejected(self):
+        broker = FakeBroker()
+        svc = _service(settings=_short_settings(), broker=broker,
+                       signals={"XYZ": _short_signal("XYZ", stop=95.0)})  # stop below entry: invalid
+        summary = svc.run(["XYZ"])
+        self.assertIn("invalid short levels", summary["decisions"][0]["reason"])
+
+    def test_bearish_signal_on_existing_short_keeps_it(self):
+        broker = FakeBroker(positions={"XYZ": Position("XYZ", -60, 100.0)})
+        svc = _service(settings=_short_settings(), broker=broker, signals={"XYZ": _short_signal("XYZ")})
+        summary = svc.run(["XYZ"])
+        self.assertIn("already short", summary["decisions"][0]["reason"])
+        self.assertEqual(broker.submitted, [])
+
+    def test_bullish_flip_covers_short(self):
+        broker = FakeBroker(positions={"XYZ": Position("XYZ", -60, 100.0)})
+        svc = _service(settings=_short_settings(), broker=broker, signals={"XYZ": _signal("XYZ", action="buy")})
+        summary = svc.run(["XYZ"])
+        d = summary["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertIn("covering short", d["reason"])
+        self.assertEqual(broker.closed, ["XYZ"])
+        self.assertEqual(broker.submitted, [])  # cover is a position close, not a new bracket
+
+
+class DeferredEntryTestCase(unittest.TestCase):
+    def test_new_entries_deferred_while_market_closed(self):
+        broker = FakeBroker(market_open=False)
+        svc = _service(settings=_short_settings(), broker=broker,
+                       signals={"AAPL": _signal("AAPL"), "XYZ": _short_signal("XYZ")})
+        summary = svc.run(["AAPL", "XYZ"])
+        statuses = {d["symbol"]: d["status"] for d in summary["decisions"]}
+        self.assertEqual(statuses, {"AAPL": "deferred", "XYZ": "deferred"})
+        self.assertEqual(broker.submitted, [])
+        text = format_summary(summary)
+        self.assertIn("Deferred", text)
+        self.assertIn("SHORT XYZ", text)
+
+    def test_exits_still_execute_while_market_closed(self):
+        broker = FakeBroker(market_open=False, positions={"AAPL": Position("AAPL", 19, 300.0)})
+        svc = _service(broker=broker, signals={"AAPL": _signal("AAPL", action="sell")})
+        summary = svc.run(["AAPL"])
+        self.assertEqual(summary["decisions"][0]["status"], "submitted")
+        self.assertEqual(broker.closed, ["AAPL"])
+
+    def test_same_day_reentry_blocked(self):
+        broker = FakeBroker()
+        db = FakeDB()
+        db.entries_today = {"AAPL"}
+        svc = _service(broker=broker, signals={"AAPL": _signal("AAPL")}, db=db)
+        summary = svc.run(["AAPL"])
+        self.assertIn("already submitted today", summary["decisions"][0]["reason"])
+        self.assertEqual(broker.submitted, [])
+
+
+class ShortStopManagementTestCase(unittest.TestCase):
+    """Short GOOGL-mirror: entry 100, initial stop 105 -> R = 5."""
+
+    def _broker(self, price, stop=105.0, **kw):
+        return FakeBroker(
+            positions={"XYZ": Position("XYZ", -60, 100.0)},
+            prices={"XYZ": price},
+            stops={"XYZ": BracketStop(order_id="stop-s", stop_price=stop, status="held", target_price=88.0)},
+            **kw,
+        )
+
+    def test_below_trigger_untouched(self):
+        broker = self._broker(price=96.0)  # +0.8R
+        _service(settings=_short_settings(), broker=broker).manage_positions()
+        self.assertEqual(broker.replaced, [])
+
+    def test_at_one_r_moves_to_breakeven_minus_buffer(self):
+        broker = self._broker(price=95.0)  # +1R
+        summary = _service(settings=_short_settings(), broker=broker).manage_positions()
+        _, new_stop = broker.replaced[0]
+        self.assertAlmostEqual(new_stop, round(100.0 * 0.998, 2), places=2)
+        self.assertLess(new_stop, 100.0)  # cover would be profitable
+        self.assertEqual(summary["adjustments"][0]["status"], "submitted")
+
+    def test_deeper_gains_trail_down(self):
+        broker = self._broker(price=87.5, stop=99.8)  # +2.5R, already at break-even
+        db = FakeDB()
+        db.entries = {"XYZ": _Entry(limit_price=100.0, stop_price=105.0)}  # initial short plan: R = 5
+        _service(settings=_short_settings(), broker=broker, db=db).manage_positions()
+        _, new_stop = broker.replaced[0]
+        self.assertAlmostEqual(new_stop, 92.5, places=2)  # price + 1R
+
+    def test_never_raises_short_stop(self):
+        broker = self._broker(price=94.0, stop=93.0)  # stop already tighter than any candidate
+        summary = _service(settings=_short_settings(), broker=broker).manage_positions()
+        self.assertEqual(broker.replaced, [])
+        self.assertEqual(summary["adjustments"], [])

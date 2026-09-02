@@ -624,3 +624,46 @@ def test_extract_and_persist_missing_price_plan_does_not_fabricate_fields(isolat
     assert item["entry_high"] is None
     assert item["stop_loss"] is None
     assert item["target_price"] is None
+
+
+def test_build_payload_extracts_valid_short_plan_into_metadata() -> None:
+    result = _result(operation_advice="卖出", decision_type="sell", sentiment_score=25)
+    result.dashboard["p_up"] = 30
+    result.dashboard["ev_contract"] = {
+        "r_multiple": 2.0,
+        "short_plan": {"entry": 100.0, "stop": 105.0, "target": 88.0, "r_multiple": 2.4},
+    }
+
+    payload = build_decision_signal_payload_from_report(
+        result,
+        trace_id="trace-short-plan",
+        query_source="api",
+        report_type="simple",
+        profile_source=BUILD_PROFILE_SOURCE,
+    )
+
+    assert payload is not None
+    metadata = payload["metadata"]
+    assert metadata["plan_direction"] == "short"
+    assert metadata["short_plan"] == {"entry": 100.0, "stop": 105.0, "target": 88.0, "r_multiple": 2.4}
+
+
+def test_build_payload_rejects_short_plan_with_bad_geometry() -> None:
+    result = _result(operation_advice="卖出", decision_type="sell", sentiment_score=25)
+    result.dashboard["ev_contract"] = {
+        "short_plan": {"entry": 100.0, "stop": 95.0, "target": 88.0},  # stop below entry: not a short plan
+    }
+
+    payload = build_decision_signal_payload_from_report(
+        result,
+        trace_id="trace-short-bad",
+        query_source="api",
+        report_type="simple",
+        profile_source=BUILD_PROFILE_SOURCE,
+    )
+
+    assert payload is not None
+    metadata = payload["metadata"]
+    assert "short_plan" not in metadata
+    assert "plan_direction" not in metadata
+    assert "invalid geometry" in metadata["short_plan_rejected"]

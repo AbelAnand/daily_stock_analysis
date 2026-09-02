@@ -121,6 +121,24 @@ def build_decision_signal_payload_from_report(
                     metadata[f"ev_{_k}"] = float(_v)
             if _ev.get("flip_condition"):
                 metadata["flip_condition"] = str(_ev["flip_condition"])[:500]
+            # Short plan (US bearish trades): persisted only when the geometry is
+            # coherent (stop above entry above target); the paper-trading layer is
+            # the sole consumer and re-validates R:R at execution time.
+            _sp = _ev.get("short_plan")
+            if isinstance(_sp, dict):
+                try:
+                    _entry = float(_sp.get("entry"))
+                    _stop = float(_sp.get("stop"))
+                    _target = float(_sp.get("target"))
+                except (TypeError, ValueError):
+                    _entry = _stop = _target = float("nan")
+                import math as _math
+                if all(_math.isfinite(v) and v > 0 for v in (_entry, _stop, _target)) and _target < _entry < _stop:
+                    metadata["short_plan"] = {"entry": _entry, "stop": _stop, "target": _target,
+                                              "r_multiple": round((_entry - _target) / (_stop - _entry), 2)}
+                    metadata["plan_direction"] = "short"
+                else:
+                    metadata["short_plan_rejected"] = "invalid geometry (need target < entry < stop)"
     score_metadata = score_band_metadata(score)
     if score_metadata:
         metadata["score_scale"] = score_metadata

@@ -69,6 +69,12 @@ class PaperTradingSettings:
     min_r_multiple: float = 1.5         # plan-quality gate at the planned entry
     chase_pct: float = 0.3              # marketable-limit buffer above the latest price when chasing
     chase_min_r_multiple: float = 1.3   # execution floor for R:R recomputed at the chased price
+    # Open-position management (stop ratchet). R = entry - initial stop.
+    breakeven_trigger_r: float = 1.0    # once unrealized gain >= this many R, the stop is raised to at least break-even
+    breakeven_buffer_pct: float = 0.2   # break-even stop = entry * (1 + this %) so the exit is a small profit, not a scratch
+    trail_r: float = 1.0                # beyond the trigger, the stop trails the latest price by this many R (only ever up)
+    stop_min_gap_pct: float = 0.5       # never place the stop closer than this % below the latest price
+    allow_short: bool = False           # execute bearish signals carrying a short_plan as short brackets
     kill_switch_path: str = KILL_SWITCH_DEFAULT
 
     @classmethod
@@ -106,6 +112,11 @@ class PaperTradingSettings:
             min_r_multiple=_float("PAPER_TRADING_MIN_R_MULTIPLE", 1.5),
             chase_pct=_float("PAPER_TRADING_CHASE_PCT", 0.3),
             chase_min_r_multiple=_float("PAPER_TRADING_CHASE_MIN_R", 1.3),
+            breakeven_trigger_r=_float("PAPER_TRADING_BREAKEVEN_TRIGGER_R", 1.0),
+            breakeven_buffer_pct=_float("PAPER_TRADING_BREAKEVEN_BUFFER_PCT", 0.2),
+            trail_r=_float("PAPER_TRADING_TRAIL_R", 1.0),
+            stop_min_gap_pct=_float("PAPER_TRADING_STOP_MIN_GAP_PCT", 0.5),
+            allow_short=_bool("PAPER_TRADING_ALLOW_SHORT", False),
             kill_switch_path=str(env.get("PAPER_TRADING_KILL_SWITCH") or KILL_SWITCH_DEFAULT),
         )
 
@@ -129,6 +140,17 @@ class OpenOrder:
     qty: float
     submitted_at: Optional[datetime]
     order_class: str = ""
+
+
+@dataclass
+class BracketStop:
+    """The live stop-loss leg protecting a filled bracket position."""
+    order_id: str
+    stop_price: float
+    status: str
+    parent_id: str = ""
+    target_order_id: str = ""
+    target_price: Optional[float] = None
 
 
 class AlpacaPaperBroker:
@@ -222,6 +244,35 @@ class AlpacaPaperBroker:
         order = self._tc.submit_order(req)
         return str(order.id)
 
+    def submit_bracket_sell_short(
+        self, symbol: str, qty: int, limit_price: float, stop_price: float, target_price: float
+    ) -> str:
+        """Short entry: sell-short limit with buy-stop above and cover target below."""
+        from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
+        from alpaca.trading.requests import LimitOrderRequest, StopLossRequest, TakeProfitRequest
+
+        req = LimitOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=OrderSide.SELL,
+            time_in_force=TimeInForce.GTC,
+            limit_price=_round_price(limit_price),
+            order_class=OrderClass.BRACKET,
+            take_profit=TakeProfitRequest(limit_price=_round_price(target_price)),
+            stop_loss=StopLossRequest(stop_price=_round_price(stop_price)),
+        )
+        order = self._tc.submit_order(req)
+        return str(order.id)
+
+    def asset_shortable(self, symbol: str) -> bool:
+        """True when Alpaca marks the asset shortable and easy-to-borrow."""
+        try:
+            asset = self._tc.get_asset(symbol)
+            return bool(getattr(asset, "shortable", False)) and bool(getattr(asset, "easy_to_borrow", False))
+        except Exception as exc:
+            logger.warning("Shortable check for %s failed: %s", symbol, exc)
+            return False
+
     def sell_market(self, symbol: str, qty: float) -> str:
         from alpaca.trading.enums import OrderSide, TimeInForce
         from alpaca.trading.requests import MarketOrderRequest
@@ -250,6 +301,52 @@ class AlpacaPaperBroker:
                 last_exc = exc
                 time.sleep(1 + attempt)
         raise RuntimeError(f"close {symbol}: shares still held for orders after cancel: {last_exc}")
+
+    def bracket_stop(self, symbol: str, entry_side: str = "buy") -> Optional[BracketStop]:
+        """Live stop-loss leg of the most recent filled bracket for ``symbol``, or None.
+
+        The OCO stop leg sits in status ``held`` and is not returned by the
+        open-orders query, so look it up through the filled parent (nested).
+        """
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        live = {"held", "new", "accepted", "pending_new", "partially_filled", "pending_replace"}
+        orders = self._tc.get_orders(GetOrdersRequest(
+            status=QueryOrderStatus.CLOSED, symbols=[symbol.upper()], limit=50, nested=True,
+        ))
+        for parent in orders:  # newest first
+            if str(getattr(parent.status, "value", parent.status)) != "filled" or not getattr(parent, "legs", None):
+                continue
+            if str(getattr(parent.side, "value", parent.side)).lower() != entry_side:
+                continue
+            stop_leg = target_leg = None
+            for leg in parent.legs:
+                status = str(getattr(leg.status, "value", leg.status))
+                if status not in live:
+                    continue
+                if getattr(leg, "stop_price", None) is not None:
+                    stop_leg = leg
+                elif getattr(leg, "limit_price", None) is not None:
+                    target_leg = leg
+            if stop_leg is None:
+                continue
+            return BracketStop(
+                order_id=str(stop_leg.id),
+                stop_price=float(stop_leg.stop_price),
+                status=str(getattr(stop_leg.status, "value", stop_leg.status)),
+                parent_id=str(parent.id),
+                target_order_id=str(target_leg.id) if target_leg is not None else "",
+                target_price=float(target_leg.limit_price) if target_leg is not None else None,
+            )
+        return None
+
+    def replace_stop(self, order_id: str, new_stop: float) -> str:
+        """Raise/lower a stop leg in place. Alpaca issues a new order id; returns it."""
+        from alpaca.trading.requests import ReplaceOrderRequest
+
+        order = self._tc.replace_order_by_id(order_id, ReplaceOrderRequest(stop_price=_round_price(new_stop)))
+        return str(order.id)
 
     def cancel_symbol_orders(self, symbol: str) -> int:
         count = 0
@@ -344,6 +441,7 @@ class PaperTradingService:
     NEW_ENTRY_ACTIONS = ("buy", "add")
     EXIT_ACTIONS = ("sell",)
     TRIM_ACTIONS = ("reduce",)
+    SHORT_ENTRY_ACTIONS = ("sell", "avoid")   # bearish actions that may carry a short_plan
 
     def __init__(
         self,
@@ -390,8 +488,12 @@ class PaperTradingService:
     def kill_switch_active(self) -> bool:
         return Path(self.settings.kill_switch_path).exists()
 
-    def run(self, stock_codes: List[str]) -> Dict[str, Any]:
-        """Execute today's signals for ``stock_codes``. Never raises on per-symbol errors."""
+    def run(self, stock_codes: List[str], *, persist_skips: bool = True) -> Dict[str, Any]:
+        """Execute today's signals for ``stock_codes``. Never raises on per-symbol errors.
+
+        ``persist_skips=False`` (the repeating intraday pass) records only actions,
+        deferrals and errors — not the identical skip reasons every 15 minutes.
+        """
         summary: Dict[str, Any] = {
             "enabled": self.settings.enabled, "dry_run": self.settings.dry_run,
             "account": None, "equity": None, "decisions": [], "cancelled_stale": 0, "error": None,
@@ -411,10 +513,12 @@ class PaperTradingService:
             summary["equity"] = equity
             positions = broker.positions()
             open_orders = broker.open_orders()
+            market_open = broker.is_market_open()
         except Exception as exc:
             logger.error("Paper trading: broker unavailable: %s", exc)
             summary["error"] = f"broker_unavailable: {exc}"
             return summary
+        summary["market_open"] = market_open
 
         cancelled = self._cancel_stale_entries(open_orders)
         summary["cancelled_stale"] = len(cancelled)
@@ -432,18 +536,161 @@ class PaperTradingService:
             try:
                 decision = self._decide(symbol, positions, open_symbols, equity, open_position_count)
                 if decision.status == "planned":
-                    self._execute(decision)
-                    if decision.status in ("submitted", "dry_run") and decision.side == "buy":
-                        open_position_count += 1
-                        open_symbols.add(symbol)
+                    # A new entry needs a live market: a marketable order submitted
+                    # pre-market prices off a stale quote and can fill through its
+                    # own stop on an opening gap (seen live: NVDA 2026-09-01).
+                    # Defer it; the intraday pass re-decides with real prices.
+                    # Exits stay allowed — they reduce risk wherever they queue.
+                    if not market_open and decision.side in ("buy", "sell_short") and not decision.extra.get("close"):
+                        decision.status = "deferred"
+                        decision.reason += " — market closed; deferred to the post-open pass"
+                    else:
+                        self._execute(decision)
+                        if decision.status in ("submitted", "dry_run") and decision.side in ("buy", "sell_short"):
+                            open_position_count += 1
+                            open_symbols.add(symbol)
             except Exception as exc:
                 logger.exception("Paper trading: %s failed", symbol)
                 decision = TradeDecision(symbol=symbol, signal_id=None, action="?", status="error", reason=str(exc)[:200])
-            self._persist(decision)
+            if persist_skips or decision.status in ("submitted", "dry_run", "deferred", "error"):
+                self._persist(decision)
             decisions.append(decision)
 
         summary["decisions"] = [d.to_dict() for d in decisions]
         return summary
+
+    # --- open-position management ---------------------------------------
+    def manage_positions(self) -> Dict[str, Any]:
+        """Ratchet the protective stop of every open bracket position; never lowers a stop.
+
+        Policy (R = entry - initial stop, from the recorded entry order):
+        once the latest price is at least ``breakeven_trigger_r`` R above entry,
+        the stop becomes ``max(entry * (1 + breakeven_buffer_pct%), price - trail_r * R)``,
+        capped ``stop_min_gap_pct`` % below the latest price. Only replaces when the
+        new stop is higher than the current one. Runs only while the market is
+        open (quotes are stale otherwise). Never raises on per-symbol errors.
+        """
+        summary: Dict[str, Any] = {
+            "enabled": self.settings.enabled, "dry_run": self.settings.dry_run,
+            "account": None, "checked": 0, "adjustments": [], "error": None,
+        }
+        if not self.settings.enabled:
+            summary["error"] = "disabled"
+            return summary
+        if self.kill_switch_active():
+            logger.warning("Paper trading kill switch present at %s; stops left untouched", self.settings.kill_switch_path)
+            summary["error"] = "kill_switch"
+            return summary
+        try:
+            broker = self.broker
+            summary["account"] = f"{broker.label}:{broker.account_number}"
+            if not broker.is_market_open():
+                summary["error"] = "market_closed"
+                logger.info("Paper trading: market closed; stop management skipped")
+                return summary
+            positions = broker.positions()
+        except Exception as exc:
+            logger.error("Paper trading: broker unavailable: %s", exc)
+            summary["error"] = f"broker_unavailable: {exc}"
+            return summary
+
+        for symbol, pos in sorted(positions.items()):
+            if not pos.qty:
+                continue
+            summary["checked"] += 1
+            try:
+                d = self._manage_one(symbol, pos)
+            except Exception as exc:
+                logger.exception("Paper trading: stop management for %s failed", symbol)
+                d = TradeDecision(symbol=symbol, signal_id=None, action="trail_stop", status="error", reason=str(exc)[:200])
+            if d.status in ("submitted", "dry_run", "error", "unprotected"):
+                self._persist(d)
+                summary["adjustments"].append(d.to_dict())
+            else:
+                logger.info("Paper trading: %s stop unchanged (%s)", symbol, d.reason)
+        return summary
+
+    def _manage_one(self, symbol: str, pos: Position) -> TradeDecision:
+        is_short = pos.qty < 0
+        d = TradeDecision(symbol=symbol, signal_id=None, action="trail_stop",
+                          side="buy" if is_short else "sell", qty=int(abs(pos.qty)))
+        leg = self.broker.bracket_stop(symbol, entry_side="sell" if is_short else "buy")
+        if leg is None:
+            d.status, d.reason = "unprotected", "no live bracket stop found for this position"
+            logger.warning("Paper trading: %s x%s has NO protective stop", symbol, pos.qty)
+            return d
+        price = self.broker.latest_price(symbol)
+        if price is None:
+            d.reason = "latest price unavailable"
+            return d
+
+        entry, cur_stop = float(pos.avg_entry), float(leg.stop_price)
+        risk = self._initial_risk(symbol, entry, cur_stop, is_short=is_short)
+        d.extra.update({"entry": entry, "price": price, "old_stop": cur_stop, "risk_per_share": round(risk, 4),
+                        "stop_order_id": leg.order_id, "target_price": leg.target_price,
+                        "direction": "short" if is_short else "long"})
+        if risk <= 0:
+            d.reason = f"cannot determine initial risk (entry {entry}, stop {cur_stop})"
+            return d
+        gain_r = ((entry - price) if is_short else (price - entry)) / risk
+        d.r_multiple = round(gain_r, 2)
+        if gain_r < self.settings.breakeven_trigger_r:
+            d.reason = f"{gain_r:+.2f}R, below break-even trigger {self.settings.breakeven_trigger_r}R"
+            return d
+
+        buf = self.settings.breakeven_buffer_pct / 100.0
+        gap = self.settings.stop_min_gap_pct / 100.0
+        if is_short:
+            # Mirror image: the protective stop sits ABOVE the price and ratchets DOWN.
+            breakeven = entry * (1 - buf)
+            trail = price + self.settings.trail_r * risk
+            candidate = _round_price(max(min(breakeven, trail), price * (1 + gap)))
+            improved = candidate < cur_stop - 0.005
+        else:
+            breakeven = entry * (1 + buf)
+            trail = price - self.settings.trail_r * risk
+            candidate = _round_price(min(max(breakeven, trail), price * (1 - gap)))
+            improved = candidate > cur_stop + 0.005
+        if not improved:
+            d.reason = f"{gain_r:+.2f}R; stop {cur_stop} already at/beyond computed {candidate}"
+            return d
+
+        d.stop_price = candidate
+        locked = ((entry - candidate) if is_short else (candidate - entry)) * abs(pos.qty)
+        d.extra["locked_in_usd"] = round(locked, 2)
+        at_breakeven = abs(candidate - breakeven) <= 0.005 or (candidate >= breakeven if is_short else candidate <= breakeven)
+        d.reason = (f"{gain_r:+.2f}R: stop {cur_stop} -> {candidate} "
+                    f"({'break-even' if at_breakeven else 'trailing'}, locks ${locked:,.0f})")
+        if self.settings.dry_run:
+            d.status = "dry_run"
+            logger.info("Paper trading [DRY RUN] %s %s", symbol, d.reason)
+            return d
+        d.order_id = self.broker.replace_stop(leg.order_id, candidate)
+        d.status = "submitted"
+        logger.info("Paper trading: %s %s (stop order %s -> %s)", symbol, d.reason, leg.order_id, d.order_id)
+        return d
+
+    def _initial_risk(self, symbol: str, entry: float, current_stop: float, *, is_short: bool = False) -> float:
+        """Per-share risk of the original plan (entry to the *initial* stop).
+
+        Anchored to the recorded entry order so a ratcheted stop does not shrink R.
+        Falls back to the distance to the current stop (exact until the first ratchet).
+        """
+        try:
+            account = getattr(self._broker, "account_number", None) if self._broker else None
+            rec = self.db.get_latest_paper_entry(
+                account=account, symbol=symbol, side="sell_short" if is_short else "buy"
+            )
+            if rec is not None and rec.limit_price and rec.stop_price:
+                if is_short and rec.stop_price > rec.limit_price:
+                    return (float(rec.stop_price) - float(entry)) if float(rec.stop_price) > float(entry) \
+                        else float(rec.stop_price) - float(rec.limit_price)
+                if not is_short and rec.stop_price < rec.limit_price:
+                    return (float(entry) - float(rec.stop_price)) if float(rec.stop_price) < float(entry) \
+                        else float(rec.limit_price) - float(rec.stop_price)
+        except Exception as exc:
+            logger.debug("Paper trading: initial-risk lookup failed for %s: %s", symbol, exc)
+        return (float(current_stop) - float(entry)) if is_short else (float(entry) - float(current_stop))
 
     # --- decision --------------------------------------------------------
     def _latest_signal(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -479,18 +726,29 @@ class PaperTradingService:
         action = str(signal.get("action") or "").lower()
         d = TradeDecision(symbol=symbol, signal_id=signal.get("id"), action=action)
         held = positions.get(symbol)
+        held_long = held is not None and held.qty > 0
+        held_short = held is not None and held.qty < 0
 
-        if action in self.EXIT_ACTIONS:
-            if not held:
-                d.reason = "sell signal but no position"
-                return d
-            d.side, d.qty, d.status, d.reason = "sell", int(held.qty), "planned", "close position"
+        # A bullish signal against an open short is an exit signal for the short.
+        if action in self.NEW_ENTRY_ACTIONS and held_short:
+            d.side, d.qty, d.status = "buy", int(abs(held.qty)), "planned"
+            d.reason = "bullish flip; covering short"
             d.extra["close"] = True
             return d
 
+        if action in self.EXIT_ACTIONS:
+            if held_long:
+                d.side, d.qty, d.status, d.reason = "sell", int(held.qty), "planned", "close position"
+                d.extra["close"] = True
+                return d
+            if held_short:
+                d.reason = "already short; bearish signal keeps the position"
+                return d
+            # No position: a bearish signal may still be an executable short (below).
+
         if action in self.TRIM_ACTIONS:
-            if not held:
-                d.reason = "reduce signal but no position"
+            if not held_long:
+                d.reason = "reduce signal but no long position"
                 return d
             qty = int(math.floor(held.qty / 2))
             if qty < 1:
@@ -498,6 +756,9 @@ class PaperTradingService:
                 return d
             d.side, d.qty, d.status, d.reason = "sell", qty, "planned", "trim half"
             return d
+
+        if action in self.SHORT_ENTRY_ACTIONS:
+            return self._decide_short_entry(d, signal, open_symbols, equity, open_position_count)
 
         if action not in self.NEW_ENTRY_ACTIONS:
             d.reason = f"no order for action '{action}'"
@@ -512,6 +773,9 @@ class PaperTradingService:
             return d
         if open_position_count >= self.settings.max_positions:
             d.reason = f"max positions ({self.settings.max_positions}) reached"
+            return d
+        if self._entry_already_submitted_today(symbol):
+            d.reason = "an entry for this symbol was already submitted today"
             return d
 
         metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
@@ -583,6 +847,119 @@ class PaperTradingService:
         d.extra.update({"entry_low": entry_low, "entry_high": entry_high, "qty_by_risk": qty_by_risk, "qty_by_notional": qty_by_notional})
         return d
 
+    def _decide_short_entry(
+        self,
+        d: TradeDecision,
+        signal: Dict[str, Any],
+        open_symbols: set,
+        equity: float,
+        open_position_count: int,
+    ) -> TradeDecision:
+        """Bearish signal on a stock we don't hold: execute its short_plan as a short bracket.
+
+        Mirror of the long entry path: plan gate at the planned entry, chase *down*
+        with a marketable limit when price has already fallen below it, sizing by
+        risk at the stop (which sits ABOVE entry).
+        """
+        symbol = d.symbol
+        no_order = f"no order for action '{d.action}'"
+        if not self.settings.allow_short:
+            d.reason = no_order + " (shorting disabled)"
+            return d
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        plan = metadata.get("short_plan") if isinstance(metadata.get("short_plan"), dict) else None
+        if not plan:
+            d.reason = no_order + " (no short plan)"
+            return d
+        if symbol in open_symbols:
+            d.reason = "open order already pending"
+            return d
+        if open_position_count >= self.settings.max_positions:
+            d.reason = f"max positions ({self.settings.max_positions}) reached"
+            return d
+        if self._entry_already_submitted_today(symbol):
+            d.reason = "an entry for this symbol was already submitted today"
+            return d
+        if self._earnings_within_horizon(signal):
+            d.reason = "earnings within horizon; skipping new entry"
+            return d
+
+        entry = _float_or_none(plan.get("entry"))
+        stop = _float_or_none(plan.get("stop"))
+        target = _float_or_none(plan.get("target"))
+        if entry is None or stop is None or target is None:
+            d.reason = "short plan missing entry/stop/target"
+            return d
+        if not (target < entry < stop):
+            d.reason = f"invalid short levels (target {target}, entry {entry}, stop {stop})"
+            return d
+
+        plan_r = (entry - target) / (stop - entry)
+        if plan_r < self.settings.min_r_multiple:
+            d.r_multiple = round(plan_r, 2)
+            d.reason = f"short R:R {plan_r:.2f} below {self.settings.min_r_multiple}"
+            return d
+
+        price = None
+        try:
+            price = self.broker.latest_price(symbol)
+        except Exception as exc:
+            logger.warning("Paper trading: quote lookup failed for %s: %s", symbol, exc)
+        if price is not None and price < entry:
+            chased = price * (1 - self.settings.chase_pct / 100.0)
+            chase_r = (chased - target) / (stop - chased) if target < chased < stop else -1.0
+            if chase_r < self.settings.chase_min_r_multiple:
+                d.r_multiple = round(chase_r, 2)
+                d.reason = (f"price ${price:.2f} ran below short entry {entry}: "
+                            f"R:R {chase_r:.2f} below chase floor {self.settings.chase_min_r_multiple}")
+                return d
+            d.extra["chased"] = {"planned_entry": entry, "latest_price": price}
+            entry = chased
+
+        if not self.broker.asset_shortable(symbol):
+            d.reason = "not shortable / not easy-to-borrow at Alpaca"
+            return d
+
+        risk_per_share = stop - entry
+        d.r_multiple = round((entry - target) / risk_per_share, 2)
+        qty_by_risk = int(math.floor(self.settings.risk_per_trade_usd / risk_per_share))
+        max_notional = equity * self.settings.max_position_pct / 100.0
+        qty_by_notional = int(math.floor(max_notional / entry))
+        qty = min(qty_by_risk, qty_by_notional)
+        if qty < 1:
+            d.reason = f"size < 1 share (risk/share ${risk_per_share:.2f}, cap ${max_notional:.0f})"
+            return d
+
+        d.side, d.qty = "sell_short", qty
+        d.limit_price, d.stop_price, d.target_price = _round_price(entry), _round_price(stop), _round_price(target)
+        d.risk_usd = round(qty * risk_per_share, 2)
+        d.status = "planned"
+        d.reason = "short bracket entry (chased to market)" if "chased" in d.extra else "short bracket entry"
+        d.extra.update({"qty_by_risk": qty_by_risk, "qty_by_notional": qty_by_notional})
+        return d
+
+    def _entry_already_submitted_today(self, symbol: str) -> bool:
+        """True when a real entry (long or short) for ``symbol`` was already submitted today (UTC).
+
+        Blocks intraday re-entry loops: without it the post-open pass would happily
+        re-enter a symbol right after its stop closed the position.
+        """
+        try:
+            account = getattr(self._broker, "account_number", None) if self._broker else None
+            return bool(self.db.has_paper_entry_today(account=account, symbol=symbol))
+        except Exception as exc:
+            logger.debug("Paper trading: same-day entry lookup failed for %s: %s", symbol, exc)
+            return False
+
+    def _recent_short_entry_ids(self) -> set:
+        try:
+            account = getattr(self._broker, "account_number", None) if self._broker else None
+            return set(self.db.get_recent_paper_entry_order_ids(
+                account=account, side="sell_short", days=self.settings.entry_ttl_days + 7))
+        except Exception as exc:
+            logger.debug("Paper trading: short entry id lookup failed: %s", exc)
+            return set()
+
     def _earnings_within_horizon(self, signal: Dict[str, Any]) -> bool:
         metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
         if metadata.get("earnings_within_horizon") is True:
@@ -608,10 +985,12 @@ class PaperTradingService:
                         d.side, d.symbol, d.qty, d.limit_price, d.stop_price, d.target_price, d.reason)
             return
         try:
-            if d.side == "buy":
-                d.order_id = self.broker.submit_bracket_buy(d.symbol, d.qty, d.limit_price, d.stop_price, d.target_price)
-            elif d.extra.get("close"):
+            if d.extra.get("close"):
                 d.order_id = self.broker.close_position(d.symbol)
+            elif d.side == "buy":
+                d.order_id = self.broker.submit_bracket_buy(d.symbol, d.qty, d.limit_price, d.stop_price, d.target_price)
+            elif d.side == "sell_short":
+                d.order_id = self.broker.submit_bracket_sell_short(d.symbol, d.qty, d.limit_price, d.stop_price, d.target_price)
             else:
                 d.order_id = self.broker.sell_market(d.symbol, d.qty)
             d.status = "submitted"
@@ -623,8 +1002,14 @@ class PaperTradingService:
     def _cancel_stale_entries(self, open_orders: List[OpenOrder]) -> List[OpenOrder]:
         cutoff = self.now() - timedelta(days=self.settings.entry_ttl_days)
         cancelled: List[OpenOrder] = []
+        # Sell-side open orders are usually protective bracket legs of live LONG
+        # positions — never TTL those. A short *entry* is also sell-side, so it
+        # is identified by its recorded order id instead of by side.
+        short_entry_ids = self._recent_short_entry_ids()
         for o in open_orders:
-            if o.side != "buy" or o.submitted_at is None:
+            if o.submitted_at is None:
+                continue
+            if o.side != "buy" and o.id not in short_entry_ids:
                 continue
             submitted = o.submitted_at if o.submitted_at.tzinfo else o.submitted_at.replace(tzinfo=timezone.utc)
             if submitted < cutoff:
@@ -675,21 +1060,58 @@ def format_summary(summary: Dict[str, Any]) -> str:
         lines.append("DRY RUN — nothing was sent to the broker")
     acted = [d for d in summary.get("decisions", []) if d.get("status") in ("submitted", "dry_run", "error")]
     skipped = [d for d in summary.get("decisions", []) if d.get("status") == "skipped"]
+    deferred = [d for d in summary.get("decisions", []) if d.get("status") == "deferred"]
     for d in acted:
-        if d.get("side") == "buy":
+        err = " ❌ " + d["reason"] if d["status"] == "error" else ""
+        if d.get("side") == "buy" and not (d.get("extra") or {}).get("close"):
             lines.append(
                 f"🟢 BUY {d['symbol']} x{d['qty']} @≤{d['limit_price']} · stop {d['stop_price']} · "
-                f"target {d['target_price']} · risk ${d.get('risk_usd', 0):,.0f} · R {d.get('r_multiple')}"
-                + (" ❌ " + d["reason"] if d["status"] == "error" else "")
+                f"target {d['target_price']} · risk ${d.get('risk_usd', 0):,.0f} · R {d.get('r_multiple')}" + err
             )
+        elif d.get("side") == "sell_short":
+            lines.append(
+                f"🔻 SHORT {d['symbol']} x{d['qty']} @≥{d['limit_price']} · stop {d['stop_price']} · "
+                f"target {d['target_price']} · risk ${d.get('risk_usd', 0):,.0f} · R {d.get('r_multiple')}" + err
+            )
+        elif d.get("side") == "buy":
+            lines.append(f"🟦 COVER {d['symbol']} x{d['qty']} — {d['reason']}" + (" ❌" if d["status"] == "error" else ""))
         else:
             lines.append(f"🔴 SELL {d['symbol']} x{d['qty']} — {d['reason']}" + (" ❌" if d["status"] == "error" else ""))
     if not acted:
         lines.append("No orders today.")
+    if deferred:
+        lines.append("Deferred to the post-open pass: " + "; ".join(
+            f"{'SHORT ' if d.get('side') == 'sell_short' else ''}{d['symbol']}" for d in deferred))
     if skipped:
         lines.append("Skipped: " + "; ".join(f"{d['symbol']} ({d['reason']})" for d in skipped))
     if summary.get("cancelled_stale"):
         lines.append(f"Cancelled {summary['cancelled_stale']} stale unfilled entr{'y' if summary['cancelled_stale']==1 else 'ies'}.")
+    return "\n".join(lines)
+
+
+def format_manage_summary(summary: Dict[str, Any], *, quiet: bool = False) -> str:
+    """Summary of the stop-management pass. With ``quiet`` returns "" when nothing changed."""
+    if not summary or summary.get("error") == "disabled":
+        return ""
+    adjustments = summary.get("adjustments") or []
+    if quiet and not adjustments and summary.get("error") in (None, "market_closed"):
+        return ""
+    lines = ["🛡️ **Stop Management**"]
+    if summary.get("error"):
+        lines.append(f"Not run: {summary['error']}")
+        return "\n".join(lines)
+    if summary.get("dry_run"):
+        lines.append("DRY RUN — nothing was sent to the broker")
+    for d in adjustments:
+        sym = d["symbol"]
+        if d["status"] == "unprotected":
+            lines.append(f"⚠️ {sym}: NO protective stop on an open position")
+        elif d["status"] == "error":
+            lines.append(f"❌ {sym}: {d['reason']}")
+        else:
+            lines.append(f"⬆️ {sym} {d['reason']}")
+    if not adjustments:
+        lines.append(f"Checked {summary.get('checked', 0)} position(s); no stop changes.")
     return "\n".join(lines)
 
 

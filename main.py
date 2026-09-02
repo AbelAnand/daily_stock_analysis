@@ -421,6 +421,12 @@ Examples:
     )
 
     parser.add_argument(
+        '--manage-positions',
+        action='store_true',
+        help='Paper trading only: ratchet protective stops on open positions (break-even / trailing), then exit'
+    )
+
+    parser.add_argument(
         '--backtest-code',
         type=str,
         default=None,
@@ -786,6 +792,7 @@ def _run_paper_trading(config: Config, stock_codes: Optional[List[str]], *, noti
         from src.services.paper_trading_service import (
             PaperTradingService,
             PaperTradingSettings,
+            format_manage_summary,
             format_summary,
         )
 
@@ -799,8 +806,13 @@ def _run_paper_trading(config: Config, stock_codes: Optional[List[str]], *, noti
             "Starting paper trading execution (account=%s, risk/trade=$%.0f, dry_run=%s)...",
             settings.account, settings.risk_per_trade_usd, settings.dry_run,
         )
-        summary = PaperTradingService(settings).run(list(stock_codes))
+        service = PaperTradingService(settings)
+        summary = service.run(list(stock_codes))
         text = format_summary(summary)
+        # Open positions are managed on every pass, not only when new signals exist.
+        manage_text = format_manage_summary(service.manage_positions())
+        if manage_text:
+            text = f"{text}\n\n{manage_text}" if text else manage_text
         if text:
             logger.info("Paper trading summary:\n%s", text)
         if text and notify and summary.get("error") != "disabled":
@@ -812,6 +824,65 @@ def _run_paper_trading(config: Config, stock_codes: Optional[List[str]], *, noti
                 logger.warning(f"Paper trading summary notification failed (ignored): {exc}")
     except Exception as exc:
         logger.warning(f"Paper trading execution failed (ignored): {exc}")
+
+
+def _run_manage_positions(*, notify: bool = True) -> int:
+    """Intraday trading pass for the timer (``--manage-positions``): entries + stop ratchet.
+
+    Talks only to the broker and the local signal store: no data fetch, no LLM.
+    First executes any fresh decision signals that are still unexecuted — entries
+    are deferred by the pre-market run and placed here, priced off live quotes so
+    an opening gap re-runs the R:R gates instead of filling through the stop —
+    then ratchets protective stops. Notifies only when something actually happened.
+    """
+    from src.services.paper_trading_service import (
+        PaperTradingService,
+        PaperTradingSettings,
+        format_manage_summary,
+        format_summary,
+    )
+
+    settings = PaperTradingSettings.from_env()
+    if not settings.enabled:
+        logger.info("Paper trading disabled (PAPER_TRADING_ENABLED); nothing to manage")
+        return 0
+    service = PaperTradingService(settings)
+
+    entry_text = ""
+    try:
+        market_open = service.broker.is_market_open()
+    except Exception as exc:
+        logger.warning(f"Broker unavailable for the trading pass: {exc}")
+        market_open = False
+    symbols = []
+    if market_open:
+        try:
+            from src.storage import get_db
+
+            symbols = get_db().list_recent_signal_symbols(market="us", hours=36)
+        except Exception as exc:
+            logger.warning(f"Signal symbol lookup failed (entries skipped this pass): {exc}")
+    if symbols:
+        run_summary = service.run(symbols, persist_skips=False)
+        acted = [d for d in run_summary.get("decisions", []) if d.get("status") in ("submitted", "error")]
+        if run_summary.get("error") not in (None, "disabled") or acted:
+            entry_text = format_summary(run_summary)
+        if entry_text:
+            logger.info("Post-open entries:\n%s", entry_text)
+
+    summary = service.manage_positions()
+    full = format_manage_summary(summary)
+    if full:
+        logger.info("Stop management:\n%s", full)
+    text = "\n\n".join(t for t in (entry_text, format_manage_summary(summary, quiet=True)) if t)
+    if text and notify:
+        try:
+            from src.notification import NotificationService
+
+            NotificationService().send(text)
+        except Exception as exc:
+            logger.warning(f"Trading pass notification failed (ignored): {exc}")
+    return 1 if summary.get("error") not in (None, "market_closed", "disabled") else 0
 
 
 def run_full_analysis(
@@ -873,6 +944,26 @@ def run_full_analysis(
 
         using_config_stock_list = stock_codes is None and portfolio_stock_codes is None
         effective_codes = stock_codes if stock_codes is not None else config.stock_list
+
+        # News-driven discovery (opt-in): merge overnight-catalyst candidates into
+        # the configured watchlist. Only for config-list runs (never for explicit
+        # --stocks / portfolio runs) and never a substitute for it: discovery
+        # failure keeps the configured list untouched.
+        if using_config_stock_list:
+            try:
+                from src.services.news_discovery_service import DiscoverySettings, NewsDiscoveryService
+
+                _disc_settings = DiscoverySettings.from_env()
+                if _disc_settings.enabled:
+                    _known = {str(c).strip().upper() for c in effective_codes}
+                    _discovered = [c for c in NewsDiscoveryService(_disc_settings).discover()
+                                   if c.symbol not in _known]
+                    if _discovered:
+                        effective_codes = list(effective_codes) + [c.symbol for c in _discovered]
+                        logger.info("Discovery added %d candidate(s) to this run: %s",
+                                    len(_discovered), ", ".join(f"{c.symbol} ({c.direction}: {c.catalyst[:60]})" for c in _discovered))
+            except Exception as _disc_exc:
+                logger.warning("News discovery failed (ignored; configured list unchanged): %s", _disc_exc)
         # Fail fast on an empty persisted watchlist before trading-day filtering.
         # Otherwise should_skip=True would mask the configuration error as success.
         if (
@@ -1678,6 +1769,11 @@ def main() -> int:
                 f"completed={stats.get('completed')} insufficient={stats.get('insufficient')} errors={stats.get('errors')}"
             )
             return 0
+
+        # Paper trading: intraday stop management only
+        if getattr(args, 'manage_positions', False):
+            logger.info("Mode: paper-trading stop management")
+            return _run_manage_positions(notify=not args.no_notify)
 
         # 模式1: 仅大盘复盘
         if args.market_review:
