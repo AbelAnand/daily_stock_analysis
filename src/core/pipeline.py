@@ -732,6 +732,14 @@ class StockAnalysisPipeline:
             track_record = self._build_track_record_context(code)
             if track_record:
                 enhanced_context["track_record"] = track_record
+            try:
+                from src.services.trade_postmortem_service import build_lessons_context
+
+                lessons = build_lessons_context()
+                if lessons:
+                    enhanced_context["trade_lessons"] = lessons
+            except Exception as lesson_exc:
+                logger.debug(f"Trade lessons unavailable (ignored): {lesson_exc}")
 
             # Step 6.6: 财报日历（仅美股；网络失败返回 None，静默跳过）
             earnings_calendar_context = self._build_earnings_calendar_context(code)
@@ -1636,6 +1644,14 @@ class StockAnalysisPipeline:
             track_record = self._build_track_record_context(code)
             if track_record:
                 initial_context["track_record"] = track_record
+            try:
+                from src.services.trade_postmortem_service import build_lessons_context
+
+                lessons = build_lessons_context()
+                if lessons:
+                    initial_context["trade_lessons"] = lessons
+            except Exception as lesson_exc:
+                logger.debug(f"Trade lessons unavailable (ignored): {lesson_exc}")
             earnings_calendar_context = self._build_earnings_calendar_context(code)
             if earnings_calendar_context:
                 initial_context["earnings_calendar"] = earnings_calendar_context

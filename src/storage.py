@@ -43,6 +43,7 @@ from sqlalchemy import (
     delete,
     desc,
     event,
+    case,
     func,
     inspect,
     MetaData,
@@ -495,6 +496,40 @@ class NewsDiscoveryRun(Base):
     shortlist_json = Column(Text)
     raw_json = Column(Text)
     error = Column(Text)
+
+
+class TradePostmortemRecord(Base):
+    """Post-mortem of a closed paper trade: what happened, why, and the lesson (if any).
+
+    One row per entry order (``entry_order_id`` unique). The lessons with
+    ``prompt_inject=True`` are fed back into the analyst prompt as the system's
+    own trading track record — the learning loop.
+    """
+
+    __tablename__ = 'trade_postmortems'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=utc_naive_now, index=True)
+    symbol = Column(String(16), nullable=False, index=True)
+    direction = Column(String(8))               # long / short
+    source = Column(String(16))                 # watchlist / discovery
+    entry_order_id = Column(String(64), unique=True, index=True)
+    signal_id = Column(Integer, index=True)
+    entry_price = Column(Float)
+    exit_price = Column(Float)
+    qty = Column(Float)
+    pnl_usd = Column(Float)
+    r_realized = Column(Float)
+    exit_kind = Column(String(16))              # stop / target / close / no_entry
+    holding_hours = Column(Float)
+    outcome = Column(String(16))                # win / loss / scratch / no_fill
+    process_quality = Column(String(16))        # good / flawed
+    category = Column(String(32), index=True)   # bad_thesis / bad_entry / bad_stop_placement / bad_target / execution_flaw / variance / good_process / no_entry
+    lesson = Column(Text)
+    lesson_confidence = Column(String(8))
+    prompt_inject = Column(Boolean, default=False, index=True)
+    model = Column(String(128))
+    raw_json = Column(Text)
 
 
 class BacktestSummary(Base):
@@ -2786,6 +2821,77 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             if account:
                 stmt = stmt.where(PaperTradeRecord.account == account)
             return [row[0] for row in session.execute(stmt).all()]
+
+    def list_unreviewed_paper_entries(self, days: int = 30) -> List[PaperTradeRecord]:
+        """Real submitted entries (long or short) with no trade_postmortems row yet."""
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=max(1, int(days)))
+        with self.get_session() as session:
+            reviewed = select(TradePostmortemRecord.entry_order_id).where(
+                TradePostmortemRecord.entry_order_id.is_not(None)
+            )
+            stmt = select(PaperTradeRecord).where(
+                PaperTradeRecord.side.in_(('buy', 'sell_short')),
+                PaperTradeRecord.status == 'submitted',
+                PaperTradeRecord.dry_run.is_(False),
+                PaperTradeRecord.order_id.is_not(None),
+                PaperTradeRecord.created_at >= cutoff,
+                ~PaperTradeRecord.order_id.in_(reviewed),
+            ).order_by(PaperTradeRecord.id.asc())
+            rows = list(session.execute(stmt).scalars().all())
+            for row in rows:
+                session.expunge(row)
+            return rows
+
+    def get_recent_trade_lessons(self, limit: int = 5) -> List[TradePostmortemRecord]:
+        """Newest injectable lessons for the analyst prompt."""
+        with self.get_session() as session:
+            stmt = select(TradePostmortemRecord).where(
+                TradePostmortemRecord.prompt_inject.is_(True),
+                TradePostmortemRecord.lesson.is_not(None),
+            ).order_by(TradePostmortemRecord.id.desc()).limit(max(1, int(limit)))
+            rows = list(session.execute(stmt).scalars().all())
+            for row in rows:
+                session.expunge(row)
+            return rows
+
+    def get_postmortem_bucket_stats(self) -> List[Dict[str, Any]]:
+        """Aggregate closed-trade performance by (source, direction) — the strategy scorecard."""
+        with self.get_session() as session:
+            rows = session.execute(
+                select(
+                    TradePostmortemRecord.source,
+                    TradePostmortemRecord.direction,
+                    func.count(TradePostmortemRecord.id),
+                    func.sum(TradePostmortemRecord.pnl_usd),
+                    func.avg(TradePostmortemRecord.r_realized),
+                    func.sum(case((TradePostmortemRecord.pnl_usd > 0, 1), else_=0)),
+                ).where(
+                    TradePostmortemRecord.outcome.in_(('win', 'loss', 'scratch')),
+                ).group_by(TradePostmortemRecord.source, TradePostmortemRecord.direction)
+            ).all()
+        out = []
+        for source, direction, n, pnl, avg_r, wins in rows:
+            out.append({
+                "source": source or "?", "direction": direction or "?", "trades": int(n or 0),
+                "wins": int(wins or 0), "net_pnl_usd": round(float(pnl or 0.0), 2),
+                "avg_r": round(float(avg_r), 2) if avg_r is not None else None,
+            })
+        return sorted(out, key=lambda b: (b["source"], b["direction"]))
+
+    def was_discovery_symbol(self, symbol: str, around: Optional[datetime] = None, days: int = 7) -> bool:
+        """True when ``symbol`` appeared in a discovery shortlist within ``days`` before ``around``."""
+        end = (around or datetime.now(timezone.utc)).replace(tzinfo=None)
+        start = end - timedelta(days=max(1, int(days)))
+        needle = f'"{str(symbol).upper()}"'
+        with self.get_session() as session:
+            stmt = select(NewsDiscoveryRun.shortlist_json).where(
+                NewsDiscoveryRun.created_at >= start,
+                NewsDiscoveryRun.created_at <= end + timedelta(days=1),
+            )
+            for (shortlist,) in session.execute(stmt).all():
+                if shortlist and needle in shortlist:
+                    return True
+        return False
 
     def list_recent_signal_symbols(self, market: str = 'us', hours: int = 36) -> List[str]:
         """Distinct symbols with a decision signal in the last ``hours`` (for the post-open entry pass)."""

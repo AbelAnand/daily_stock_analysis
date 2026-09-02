@@ -813,6 +813,23 @@ def _run_paper_trading(config: Config, stock_codes: Optional[List[str]], *, noti
         manage_text = format_manage_summary(service.manage_positions())
         if manage_text:
             text = f"{text}\n\n{manage_text}" if text else manage_text
+        # Learning loop: post-mortem newly closed trades and surface the lessons.
+        try:
+            from src.services.trade_postmortem_service import (
+                PostmortemSettings,
+                TradePostmortemService,
+                format_postmortem_summary,
+            )
+
+            pm_settings = PostmortemSettings.from_env()
+            if pm_settings.enabled:
+                pm_text = format_postmortem_summary(
+                    TradePostmortemService(pm_settings, broker=service.broker).run()
+                )
+                if pm_text:
+                    text = f"{text}\n\n{pm_text}" if text else pm_text
+        except Exception as pm_exc:
+            logger.warning(f"Trade post-mortem failed (ignored): {pm_exc}")
         if text:
             logger.info("Paper trading summary:\n%s", text)
         if text and notify and summary.get("error") != "disabled":

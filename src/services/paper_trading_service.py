@@ -341,6 +341,78 @@ class AlpacaPaperBroker:
             )
         return None
 
+    def order_with_legs(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """One order (with nested legs) as a plain dict, or None when not found."""
+        try:
+            from alpaca.trading.requests import GetOrderByIdRequest
+
+            o = self._tc.get_order_by_id(order_id, filter=GetOrderByIdRequest(nested=True))
+        except Exception as exc:
+            logger.info("Order %s lookup failed: %s", order_id, exc)
+            return None
+
+        def _plain(order: Any) -> Dict[str, Any]:
+            return {
+                "id": str(order.id),
+                "status": str(getattr(order.status, "value", order.status)),
+                "side": str(getattr(order.side, "value", order.side)).lower(),
+                "filled_qty": getattr(order, "filled_qty", None),
+                "filled_avg_price": getattr(order, "filled_avg_price", None),
+                "filled_at": getattr(order, "filled_at", None),
+                "stop_price": getattr(order, "stop_price", None),
+                "limit_price": getattr(order, "limit_price", None),
+            }
+
+        out = _plain(o)
+        out["legs"] = [_plain(leg) for leg in (getattr(o, "legs", None) or [])]
+        return out
+
+    def first_flattening_fill(self, symbol: str, *, side: str, after: Any, qty: float) -> Optional[Dict[str, Any]]:
+        """Earliest filled ``side`` order for ``symbol`` after ``after`` (a direct position close)."""
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        try:
+            orders = self._tc.get_orders(GetOrdersRequest(
+                status=QueryOrderStatus.CLOSED, symbols=[symbol.upper()], limit=100))
+        except Exception as exc:
+            logger.info("Fill search for %s failed: %s", symbol, exc)
+            return None
+        matches = []
+        for o in orders:
+            try:
+                if str(getattr(o.side, "value", o.side)).lower() != side:
+                    continue
+                if not o.filled_at or not o.filled_avg_price or float(o.filled_qty or 0) <= 0:
+                    continue
+                if after is not None and o.filled_at <= after:
+                    continue
+                matches.append(o)
+            except Exception:
+                continue
+        if not matches:
+            return None
+        first = min(matches, key=lambda o: o.filled_at)
+        return {"price": float(first.filled_avg_price), "at": first.filled_at, "qty": float(first.filled_qty)}
+
+    def daily_bars(self, symbol: str, *, start: Any, limit: int = 10) -> List[Dict[str, Any]]:
+        """Daily OHLC bars since ``start`` (IEX feed), oldest first."""
+        if self._data is None:
+            from alpaca.data.historical import StockHistoricalDataClient
+
+            self._data = StockHistoricalDataClient(self._key_id, self._secret_key)
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+
+        bars = self._data.get_stock_bars(StockBarsRequest(
+            symbol_or_symbols=symbol, timeframe=TimeFrame.Day, start=start))
+        out = []
+        for b in (bars.data.get(symbol) or [])[:limit]:
+            out.append({"date": str(b.timestamp.date()), "open": round(float(b.open), 2),
+                        "high": round(float(b.high), 2), "low": round(float(b.low), 2),
+                        "close": round(float(b.close), 2)})
+        return out
+
     def replace_stop(self, order_id: str, new_stop: float) -> str:
         """Raise/lower a stop leg in place. Alpaca issues a new order id; returns it."""
         from alpaca.trading.requests import ReplaceOrderRequest

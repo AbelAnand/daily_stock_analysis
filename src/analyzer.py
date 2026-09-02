@@ -4245,6 +4245,26 @@ Output strictly in the following JSON format. This is a complete **Decision Dash
 > do not change the buy/sell direction because of the track record, but probability labels should converge toward the real hit rate.
 """
 
+        # Lessons from the system's own closed paper trades (post-mortem loop).
+        # Annotate-not-veto: calibration input, never a direction override.
+        trade_lessons = context.get('trade_lessons')
+        if isinstance(trade_lessons, dict) and trade_lessons.get('lessons'):
+            lesson_lines = []
+            for item in trade_lessons['lessons'][:8]:
+                if not isinstance(item, dict) or not item.get('lesson'):
+                    continue
+                r_txt = f", {item['r_realized']:+.1f}R" if isinstance(item.get('r_realized'), (int, float)) else ""
+                tag = f"{item.get('symbol', '?')} {item.get('direction', '')} {item.get('when', '')}{r_txt}".strip()
+                lesson_lines.append(f"- [{item.get('category', 'lesson')}] ({tag}) {item['lesson']}")
+            if lesson_lines:
+                prompt += f"""
+### 🧠 Lessons from this system's own closed trades (post-mortem review)
+{chr(10).join(lesson_lines)}
+
+> These are process lessons distilled from this system's OWN executed paper trades. Apply the ones relevant to this setup — especially to entry placement, stop placement, and target realism — and say so in the rationale when one changes your levels.
+> They are calibration, not vetoes: do not become blanket-timid, and do not change an otherwise sound conclusion's direction because of them.
+"""
+
         # Day-over-day comparison
         if 'yesterday' in context:
             volume_change = context.get('volume_change_ratio', 'N/A')
