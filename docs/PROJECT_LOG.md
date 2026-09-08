@@ -7,6 +7,40 @@ Runtime: this Linux box, `.venv/`, systemd user timer `dsa-daily.timer`. Secrets
 
 ---
 
+## Runbook — the trading dashboard (web UI)
+
+The dashboard is the project's web UI served by FastAPI. It is **not** a systemd unit: it is a plain background process that dies on reboot and must be started by hand.
+
+**Start**
+
+```bash
+cd /home/abe/daily_stock_analysis
+nohup .venv/bin/python webui.py > logs/web_server.nohup.log 2>&1 &
+```
+
+Then open http://127.0.0.1:8000/trading (API docs at http://127.0.0.1:8000/docs). Startup takes a few seconds; `WEBUI_AUTO_BUILD=true` re-runs the frontend build only when `apps/dsa-web/` changed.
+
+**Check / stop / restart**
+
+```bash
+pgrep -fa "python webui.py"                               # is it running?
+curl -s http://127.0.0.1:8000/api/v1/health               # does it answer?
+pkill -f "python webui.py"                                # stop
+tail -f logs/web_server.nohup.log                         # logs
+```
+
+Restart = stop, then the start command again. After changing frontend code, run `cd apps/dsa-web && npm run build` first so `static/` is fresh.
+
+**What it needs**
+
+- `.env`: `ALPACA_<LABEL>_KEY_ID` / `_SECRET_KEY` (paper accounts only; `PAPER_TRADING_ACCOUNT=auto` picks the reachable one with the most equity). Without them the Trading page shows a "not connected" state.
+- `WEBUI_HOST=127.0.0.1`, `WEBUI_PORT=8000` (defaults). Bound to localhost only.
+- `ADMIN_AUTH_ENABLED=false` since 2026-09-04 (no login). Set it back to `true` before ever setting `WEBUI_HOST=0.0.0.0`; the Settings page can change every secret and the Trading page can flatten the account.
+
+`webui.py` runs only the web server and API, not the in-app scheduler, so it never doubles up with the `dsa-daily` / `dsa-manage` systemd timers.
+
+---
+
 ## 2026-08-20 — Clone, security audit, first look
 
 - Cloned upstream into `/home/abe/daily_stock_analysis`, installed dependencies into `.venv`.
@@ -117,6 +151,49 @@ User green-lit the learning idea ("this is where we can afford to fail and kill 
 - **First live run reviewed our 4 real order chains** and was uncannily on target: NVDA 9/1 → `execution_flaw`, lesson "validate the fill price is on the correct side of the stop before submission" — the exact bug root-caused and fixed yesterday, found independently from the trade record alone; MSFT 9/2 stop-out → `variance`, no lesson invented (the discipline working); the two stale 8/21 entries → `no_fill`, zero LLM cost. Scorecard: watchlist/long 1/2 wins, −$44, avg −0.51R.
 - **Verification**: 14 unit tests (round-trip reconstruction incl. short P&L sign, open-position skip, direct-close matching, cancelled-entry no-LLM path, review parsing, injection gating incl. execution_flaw exclusion, digest formatting); 240 tests green across the whole touched surface; live run above. Enabled in `.env` (`TRADE_POSTMORTEM_ENABLED=true`).
 - **Deliberate bounds**: one review per entry order ever; lessons capped and recency-based, no ever-growing rulebook; variance produces nothing; the system never adjusts its own parameters — parameter/code changes remain human decisions fed by the scorecard.
+
+## 2026-09-04 — Trading desk: Web dashboard with P&L, positions, Close and Close-all
+
+User asked for a bot dashboard in the style of a professional finance system: total P&L, open positions, a per-position close button and a "nuke all" button.
+
+- **Backend** (`src/services/paper_dashboard_service.py`, `api/v1/endpoints/paper_trading.py`, `api/v1/schemas/paper_trading.py`): `GET /api/v1/paper-trading/dashboard` returns status (bot enabled / dry run / kill switch / shorts / market clock), account balances, P&L, exposure, positions, open orders and recent `paper_trades` rows. `POST …/positions/{symbol}/close` and `POST …/positions/close-all` reuse the broker's proven `close_position` path (legs cancelled first, retry while the OCO hold releases) and return per-symbol results; every manual close is persisted as `action=manual_close` so the post-mortem loop reviews it. Broker wrapper gained `position_details` (unrealized P&L etc.), `account_snapshot`, `clock`, `equity_at_start_of` (portfolio history `base_value`) and richer `OpenOrder` fields; storage gained `get_first_paper_entry_at`, `list_recent_paper_trades`, `get_realized_paper_pnl`. Service is cached on `app.state` via `api/deps.get_paper_dashboard_service`.
+- **P&L definition** (decision): "Total P&L" = live equity − equity at the start of the day of the bot's first real entry (2026-08-22), anchored through Alpaca portfolio history. Probed live: since-inception history says −$2,336 (the account traded before the bot), since 8/22 says −$44.16, matching post-mortem realized −$44.22 + GOOGL unrealized +$0.34. Fallback to realized + unrealized with `total_pnl_basis` labelling. Day P&L = equity − last_equity.
+- **Web** (`apps/dsa-web/src/pages/PaperTradingPage.tsx`, `/trading`, sidebar "Trading" after AI signals): KPI row (Total / Day / Unrealized P&L, Equity, Gross exposure), status badges, positions table (side, qty, avg entry, last, market value, unrealized $ and %, today, live stop with shield / "No stop" warning, target, R), open orders, recent activity, market-open pill, auto-refresh 15 s (pausable, visibility-aware). Close = confirm dialog; Close all = red dialog requiring the typed phrase `CLOSE ALL`, per-symbol results shown afterwards. zh + en strings.
+- **Safety**: closing is allowed while the kill switch is set (risk-reducing); dry run records without sending; admin auth covers the routes; paper-only guard unchanged.
+- **Verification**: 20 new backend tests (P&L anchoring + fallback, stop/target/R, short handling, kill switch, close/close-all incl. partial failure, dry run, 404/503 mapping) — 72 green with the existing paper-trading suite (`.env` moved aside). Web: eslint clean, `tsc -b` clean, 6 new page tests, full vitest 1105 passed / 1 pre-existing unrelated failure (`AlertRuleForm` JP/KR zh-mode test, fails on the untouched file in isolation), `npm run build` OK (static/ refreshed). Live read-only snapshot against account B validated against the Pydantic schema (GOOGL 17 @ 343.61, stop leg 330.47 / target 373.51 found). flake8 not installed in the venv; `py_compile` clean. Not exercised live: the actual close buttons (would flatten the real GOOGL position).
+
+## 2026-09-04 — Login off, secrets masked in the web UI
+
+User reaction to the login prompt on first web visit ("just visuals for this bot"): admin auth was on since the 2026-08-20 hardening because the Settings API returned every API key in plaintext. Decision: turn the login off (server binds to 127.0.0.1 only) and close the actual hole instead.
+
+- `.env`: `ADMIN_AUTH_ENABLED=false`. Web server started with `nohup .venv/bin/python webui.py` (localhost:8000, web + API only, no in-app scheduler so it does not double the systemd timers). Not yet a systemd unit.
+- `src/services/system_config_service.py` `get_config`: every field whose schema says `is_sensitive` (43 registered keys plus any unregistered KEY/TOKEN/SECRET/PASSWORD key) is now returned as the mask token with `is_masked=true`, not just the four Hermes/telemetry keys. No write-path change was needed: update, validate, notification test and backend-status preview already treat the mask token as "unchanged" for sensitive fields.
+- Verification: 279 system-config service/API tests green after retargeting the three upstream tests that asserted plaintext secrets, plus a new round-trip test (save with the mask token keeps the stored secret). Live scan of 13 GET endpoints on the running server for the real Anthropic / Tavily / Telegram / Alpaca values: none present; `/config/export` returns 403 while auth is off (upstream gate unchanged).
+- Trade-off: with auth off, anything running on this machine can change settings or press Close-all. Re-enable `ADMIN_AUTH_ENABLED` before ever exposing the port on the LAN.
+
+## 2026-09-04 — Trading page: numbers only, plus a bot P&L curve
+
+User: "get rid of all the fluff … I only need the numbers" and "a pnl graph of the bot, not of the entire account".
+
+- Page stripped to a status chip row (chips only when something needs attention), seven KPI tiles (Total / Day / Unrealized / Realized P&L, Equity, Cash, Exposure) with a single numeric sub-line each, the P&L chart, and the three tables. Eyebrow, descriptions, subtitles, hints, icons and the account/bot/shorts badges are gone; the shell header shows "Trading — Paper account".
+- **Bot P&L curve**: broker `portfolio_history_since(day)` returns Alpaca daily equity from the anchor day plus `base_value`; the service emits `pnl_history` = `equity − base_value` per trading day with today's point replaced by live equity. Same anchor as the Total P&L tile, so the curve is strictly the bot's result (the account's −$2.3k pre-bot drawdown is excluded). Rendered with recharts (single series, zero reference line, crosshair tooltip with date / P&L / equity, colour by sign of the latest value).
+- Verification: 73 backend tests (2 new: curve points and live-point replacement), eslint / tsc clean, page tests updated (chart presence, KPI values, empty-history state), build OK, server restarted; live page rendered with real data (curve from 2026-08-22).
+
+## 2026-09-04 — Dashboard restarted; runbook added
+
+- Web server restarted by hand (stop + `nohup .venv/bin/python webui.py`), health and `/api/v1/paper-trading/dashboard` verified. Startup / stop / restart instructions now live in the **Runbook** section at the top of this log so they are not buried in dated entries.
+
+## 2026-09-07 — Why the account is down $214, and the ATR stop floor
+
+User: "how have we lost over 200 bucks?" — then "from what you've learnt, can you improve the system".
+
+**Diagnosis** (Alpaca fills + `paper_trades` + the stored report context): −$213.83 since the 8/20 anchor = GOOGL −$93 open, BKR stop −$76 (9/4), MSFT stop −$45 (9/2), NVDA +$0.38 (the 9/1 gap flaw), AAPL +$0.06 (manual test). Both real losses were stops placed *inside one day's average range*: BKR's stop sat 0.56 ATR below entry and was hit 90 min after the fill; MSFT's 0.61 ATR, hit 2 h later. Root cause is a semantic mismatch, not a direction call: the analyst writes stops as closing conditions ("a confirmed close below MA10") while the bracket leg fires on a tick — and in every one of those reports the system's own ATR reference levels had already rated the plan `poor_risk_reward`; the analyst tightened the stop to manufacture an R:R above the gate.
+
+- **`PAPER_TRADING_STOP_MIN_ATR_MULT`** (default 1.0, `paper_trading_service.py`): a new entry's stop is pushed out to at least that many ATR(14) from the planned entry before the plan gate, chase gate and sizing run (shorts mirrored, buy-stop above). Dollar risk unchanged, share count drops; plans whose target cannot pay for a survivable stop now fail the existing R:R gates instead of executing on a paper-thin stop. ATR from the signal's report (`context_snapshot.enhanced_context.computed_trade_levels.atr`, i.e. what the analyst was shown), else Wilder ATR14 from broker daily bars (`_wilder_atr_from_bars`, same recursion as the analyzer); neither available → plan stop used, `extra.atr=null`. Widened entries carry `extra.stop_widened`, the reason text and the Paper Orders line say so. Chase re-flooring was considered and dropped: chasing only moves the entry away from the stop.
+- **Replay against the real entries with their stored ATR**: NVDA 0.36 ATR → rejected (R 0.96 at the chased price), MSFT 0.61 → rejected (plan R 1.46), BKR 0.56 → rejected (R 1.09), LPG 0.67 → rejected at the chase (R 1.12; the resting order is still unfilled), GOOGL 1.38 ATR (`good`) → untouched. The floor would have blocked every trade that lost money and kept the only one the system rated good.
+- **Learning loop cadence**: post-mortems now also run in the intraday `--manage-positions` pass while the market is open (`_run_trade_postmortems` shared with the daily run). Motivation: BKR was stopped Friday and still had no review Monday night — the daily run only reviews at its *end*, and on Labor Day it skipped entirely, so the lesson would have missed Tuesday's analysis too.
+- **Verification**: 98 tests green across the paper-trading, post-mortem, dashboard and API suites (10 new: Wilder ATR, BKR replay rejection, widening + sizing, untouched when beyond the floor, chase gated on the widened stop, chase rejection reason, report ATR preferred over bars, no-ATR passthrough, `0` disables, short mirror, env parsing); main-related suites green; `py_compile` clean. Not exercised live: the next real entry decision (first chance is the 9/8 09:32 ET pass).
+- **Still open**: GOOGL is 1.6 % underwater for 12 sessions with the analyst downgraded to `watch` since 9/4 — there is no time stop and a downgrade does nothing to a held position; a user decision. LPG's resting limit will be TTL-cancelled on the 9/8 run.
 
 ## Open decisions
 

@@ -814,22 +814,9 @@ def _run_paper_trading(config: Config, stock_codes: Optional[List[str]], *, noti
         if manage_text:
             text = f"{text}\n\n{manage_text}" if text else manage_text
         # Learning loop: post-mortem newly closed trades and surface the lessons.
-        try:
-            from src.services.trade_postmortem_service import (
-                PostmortemSettings,
-                TradePostmortemService,
-                format_postmortem_summary,
-            )
-
-            pm_settings = PostmortemSettings.from_env()
-            if pm_settings.enabled:
-                pm_text = format_postmortem_summary(
-                    TradePostmortemService(pm_settings, broker=service.broker).run()
-                )
-                if pm_text:
-                    text = f"{text}\n\n{pm_text}" if text else pm_text
-        except Exception as pm_exc:
-            logger.warning(f"Trade post-mortem failed (ignored): {pm_exc}")
+        pm_text = _run_trade_postmortems(service.broker)
+        if pm_text:
+            text = f"{text}\n\n{pm_text}" if text else pm_text
         if text:
             logger.info("Paper trading summary:\n%s", text)
         if text and notify and summary.get("error") != "disabled":
@@ -843,14 +830,38 @@ def _run_paper_trading(config: Config, stock_codes: Optional[List[str]], *, noti
         logger.warning(f"Paper trading execution failed (ignored): {exc}")
 
 
-def _run_manage_positions(*, notify: bool = True) -> int:
-    """Intraday trading pass for the timer (``--manage-positions``): entries + stop ratchet.
+def _run_trade_postmortems(broker: Any) -> str:
+    """Learning loop (TRADE_POSTMORTEM_ENABLED): review newly closed paper trades.
 
-    Talks only to the broker and the local signal store: no data fetch, no LLM.
+    Returns the digest text, "" when disabled or nothing closed. Never raises.
+    """
+    try:
+        from src.services.trade_postmortem_service import (
+            PostmortemSettings,
+            TradePostmortemService,
+            format_postmortem_summary,
+        )
+
+        pm_settings = PostmortemSettings.from_env()
+        if not pm_settings.enabled:
+            return ""
+        return format_postmortem_summary(TradePostmortemService(pm_settings, broker=broker).run())
+    except Exception as pm_exc:
+        logger.warning(f"Trade post-mortem failed (ignored): {pm_exc}")
+        return ""
+
+
+def _run_manage_positions(*, notify: bool = True) -> int:
+    """Intraday trading pass for the timer (``--manage-positions``): entries + stop ratchet + reviews.
+
+    Talks only to the broker and the local signal store: no data fetch, and the
+    only LLM call is the post-mortem of a trade that just closed.
     First executes any fresh decision signals that are still unexecuted — entries
     are deferred by the pre-market run and placed here, priced off live quotes so
     an opening gap re-runs the R:R gates instead of filling through the stop —
-    then ratchets protective stops. Notifies only when something actually happened.
+    then ratchets protective stops, then reviews trades closed since the last
+    pass so a stop-out's lesson reaches the next morning's analysis instead of
+    waiting for the daily run after that. Notifies only when something happened.
     """
     from src.services.paper_trading_service import (
         PaperTradingService,
@@ -891,7 +902,10 @@ def _run_manage_positions(*, notify: bool = True) -> int:
     full = format_manage_summary(summary)
     if full:
         logger.info("Stop management:\n%s", full)
-    text = "\n\n".join(t for t in (entry_text, format_manage_summary(summary, quiet=True)) if t)
+    pm_text = _run_trade_postmortems(service.broker) if market_open else ""
+    if pm_text:
+        logger.info("Trade review:\n%s", pm_text)
+    text = "\n\n".join(t for t in (entry_text, format_manage_summary(summary, quiet=True), pm_text) if t)
     if text and notify:
         try:
             from src.notification import NotificationService

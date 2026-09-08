@@ -1461,6 +1461,9 @@ For this feature, the product behavior is:
 | `/api/v1/decision-signals/latest/{stock_code}` | GET | Query the latest active decision signals for a stock |
 | `/api/v1/usage/summary?period=today|month|all` | GET | Query LLM call counts and token usage grouped by call type and model |
 | `/api/v1/usage/dashboard?period=today|month|all&limit=50` | GET | Return token-usage dashboard data: totals, prompt/completion split, model usage, call-type breakdown, and recent call records; the Web entry is the sidebar Usage page |
+| `/api/v1/paper-trading/dashboard` | GET | Paper-trading dashboard: account balances, bot P&L since its first trade, open positions with stop / target / R, open orders and recent `paper_trades` activity; the Web entry is the sidebar Trading page |
+| `/api/v1/paper-trading/positions/{symbol}/close` | POST | Close one open paper position at market (bracket legs cancelled first); recorded in `paper_trades` as `manual_close` |
+| `/api/v1/paper-trading/positions/close-all` | POST | Close every open paper position at market; returns per-symbol results so partial failures are visible |
 | `/api/v1/backtest/run` | POST | Trigger backtest |
 | `/api/v1/backtest/results` | GET | Query backtest results (paginated) |
 | `/api/v1/backtest/performance` | GET | Get overall backtest performance |

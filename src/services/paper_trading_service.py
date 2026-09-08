@@ -74,6 +74,9 @@ class PaperTradingSettings:
     breakeven_buffer_pct: float = 0.2   # break-even stop = entry * (1 + this %) so the exit is a small profit, not a scratch
     trail_r: float = 1.0                # beyond the trigger, the stop trails the latest price by this many R (only ever up)
     stop_min_gap_pct: float = 0.5       # never place the stop closer than this % below the latest price
+    # New-entry stop distance floor: a plan stop closer than this many ATR(14) to the
+    # entry is widened to the floor before the R:R gates run (0 disables).
+    stop_min_atr_mult: float = 1.0
     allow_short: bool = False           # execute bearish signals carrying a short_plan as short brackets
     kill_switch_path: str = KILL_SWITCH_DEFAULT
 
@@ -116,6 +119,7 @@ class PaperTradingSettings:
             breakeven_buffer_pct=_float("PAPER_TRADING_BREAKEVEN_BUFFER_PCT", 0.2),
             trail_r=_float("PAPER_TRADING_TRAIL_R", 1.0),
             stop_min_gap_pct=_float("PAPER_TRADING_STOP_MIN_GAP_PCT", 0.5),
+            stop_min_atr_mult=_float("PAPER_TRADING_STOP_MIN_ATR_MULT", 1.0),
             allow_short=_bool("PAPER_TRADING_ALLOW_SHORT", False),
             kill_switch_path=str(env.get("PAPER_TRADING_KILL_SWITCH") or KILL_SWITCH_DEFAULT),
         )
@@ -133,6 +137,23 @@ class Position:
 
 
 @dataclass
+class PositionDetail:
+    """Full broker view of one open position (dashboard / monitoring)."""
+    symbol: str
+    side: str                      # long / short
+    qty: float                     # signed as reported by the broker (negative for shorts)
+    avg_entry: float
+    current_price: Optional[float]
+    market_value: float
+    cost_basis: float
+    unrealized_pl: float
+    unrealized_plpc: float         # fraction, e.g. 0.012 = +1.2 %
+    unrealized_intraday_pl: float
+    change_today: float            # fraction
+    qty_available: float
+
+
+@dataclass
 class OpenOrder:
     id: str
     symbol: str
@@ -140,6 +161,10 @@ class OpenOrder:
     qty: float
     submitted_at: Optional[datetime]
     order_class: str = ""
+    order_type: str = ""
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    status: str = ""
 
 
 @dataclass
@@ -185,6 +210,91 @@ class AlpacaPaperBroker:
             )
         return out
 
+    def position_details(self) -> List[PositionDetail]:
+        """Every open position with the broker's live valuation fields (dashboard view)."""
+        out: List[PositionDetail] = []
+        for p in self._tc.get_all_positions():
+            side = str(getattr(getattr(p, "side", ""), "value", getattr(p, "side", "")) or "").lower()
+            out.append(PositionDetail(
+                symbol=str(p.symbol).upper(),
+                side="short" if side == "short" else "long",
+                qty=float(p.qty),
+                avg_entry=float(p.avg_entry_price),
+                current_price=_float_or_none(getattr(p, "current_price", None)),
+                market_value=float(getattr(p, "market_value", 0) or 0),
+                cost_basis=float(getattr(p, "cost_basis", 0) or 0),
+                unrealized_pl=float(getattr(p, "unrealized_pl", 0) or 0),
+                unrealized_plpc=float(getattr(p, "unrealized_plpc", 0) or 0),
+                unrealized_intraday_pl=float(getattr(p, "unrealized_intraday_pl", 0) or 0),
+                change_today=float(getattr(p, "change_today", 0) or 0),
+                qty_available=float(getattr(p, "qty_available", p.qty) or 0),
+            ))
+        out.sort(key=lambda d: d.symbol)
+        return out
+
+    def account_snapshot(self) -> Dict[str, Any]:
+        """Account balances as plain floats (equity, last_equity = previous close, cash, buying power)."""
+        acct = self._tc.get_account()
+        created = getattr(acct, "created_at", None)
+        return {
+            "label": self.label,
+            "account_number": self.account_number,
+            "equity": float(acct.equity or 0),
+            "last_equity": float(getattr(acct, "last_equity", 0) or 0),
+            "cash": float(getattr(acct, "cash", 0) or 0),
+            "buying_power": float(acct.buying_power or 0),
+            "portfolio_value": float(getattr(acct, "portfolio_value", 0) or 0),
+            "long_market_value": float(getattr(acct, "long_market_value", 0) or 0),
+            "short_market_value": float(getattr(acct, "short_market_value", 0) or 0),
+            "created_at": created.isoformat() if hasattr(created, "isoformat") else (str(created) if created else None),
+        }
+
+    def clock(self) -> Dict[str, Any]:
+        clk = self._tc.get_clock()
+
+        def _iso(value: Any) -> Optional[str]:
+            return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
+
+        return {
+            "is_open": bool(clk.is_open),
+            "next_open": _iso(getattr(clk, "next_open", None)),
+            "next_close": _iso(getattr(clk, "next_close", None)),
+        }
+
+    def portfolio_history_since(self, day: datetime) -> Optional[Dict[str, Any]]:
+        """Daily equity history from the start of ``day``: ``{"base_value", "points": [(date, equity)]}``.
+
+        ``base_value`` is the account equity at the start of ``day``. It anchors
+        "P&L since the bot's first trade": live equity minus it captures
+        realized, unrealized and manual closes alike, unaffected by whatever the
+        account did before the bot took over; ``equity - base_value`` per point is
+        the bot's cumulative P&L curve. None when the history call fails.
+        """
+        try:
+            from alpaca.trading.requests import GetPortfolioHistoryRequest
+
+            start = day if day.tzinfo else day.replace(tzinfo=timezone.utc)
+            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            hist = self._tc.get_portfolio_history(GetPortfolioHistoryRequest(start=start, timeframe="1D"))
+            base = getattr(hist, "base_value", None)
+            if base is None:
+                return None
+            points: List[Tuple[str, float]] = []
+            for ts, equity in zip(getattr(hist, "timestamp", None) or [], getattr(hist, "equity", None) or []):
+                if equity is None:
+                    continue
+                when = datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()
+                points.append((when, float(equity)))
+            return {"base_value": float(base), "points": points}
+        except Exception as exc:
+            logger.warning("Portfolio history since %s unavailable: %s", day, exc)
+            return None
+
+    def equity_at_start_of(self, day: datetime) -> Optional[float]:
+        """Account equity at the start of ``day`` (portfolio-history base value), or None."""
+        hist = self.portfolio_history_since(day)
+        return hist["base_value"] if hist else None
+
     def open_orders(self) -> List[OpenOrder]:
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
@@ -201,6 +311,10 @@ class AlpacaPaperBroker:
                     qty=float(o.qty or 0),
                     submitted_at=submitted,
                     order_class=str(getattr(getattr(o, "order_class", ""), "value", getattr(o, "order_class", "")) or ""),
+                    order_type=str(getattr(getattr(o, "order_type", ""), "value", getattr(o, "order_type", "")) or ""),
+                    limit_price=_float_or_none(getattr(o, "limit_price", None)),
+                    stop_price=_float_or_none(getattr(o, "stop_price", None)),
+                    status=str(getattr(getattr(o, "status", ""), "value", getattr(o, "status", "")) or ""),
                 )
             )
         return out
@@ -438,6 +552,31 @@ class AlpacaPaperBroker:
 def _round_price(value: float) -> float:
     # US equities: sub-penny increments are rejected for prices >= $1.
     return round(float(value), 2) if float(value) >= 1 else round(float(value), 4)
+
+
+def _wilder_atr_from_bars(bars: List[Dict[str, Any]], period: int = 14) -> Optional[float]:
+    """Wilder-smoothed ATR over daily OHLC dicts (oldest first).
+
+    Same recursion as ``ewm(alpha=1/period, adjust=False)`` used by the analyzer,
+    so the number matches the report's ``computed_trade_levels.atr``. None when
+    fewer than ``period + 1`` usable bars.
+    """
+    true_ranges: List[float] = []
+    prev_close: Optional[float] = None
+    for bar in bars or []:
+        try:
+            high, low, close = float(bar["high"]), float(bar["low"]), float(bar["close"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        tr = high - low if prev_close is None else max(high - low, abs(high - prev_close), abs(low - prev_close))
+        true_ranges.append(tr)
+        prev_close = close
+    if len(true_ranges) < period + 1:
+        return None
+    atr = true_ranges[0]
+    for tr in true_ranges[1:]:
+        atr += (tr - atr) / period
+    return atr if atr > 0 else None
 
 
 def discover_accounts(env: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -869,12 +1008,23 @@ class PaperTradingService:
             d.reason = f"invalid levels (stop {stop}, entry {entry}, target {target})"
             return d
 
+        # Stop distance floor: the stop must sit at least stop_min_atr_mult ATR
+        # below the planned entry; a tighter plan stop is widened and every
+        # gate below runs on the widened geometry.
+        atr = self._atr_for(symbol, signal)
+        plan_stop = stop
+        stop = self._floored_stop(entry, stop, atr)
+
+        def widened_note() -> str:
+            return (f" (stop widened {plan_stop} -> {stop}, {self.settings.stop_min_atr_mult:g}×ATR floor)"
+                    if stop != plan_stop else "")
+
         # Plan-quality gate at the planned entry: the plan itself must promise
         # at least min_r_multiple.
         plan_r = (target - entry) / (entry - stop)
         if plan_r < self.settings.min_r_multiple:
             d.r_multiple = round(plan_r, 2)
-            d.reason = f"R:R {plan_r:.2f} below {self.settings.min_r_multiple}"
+            d.reason = f"R:R {plan_r:.2f} below {self.settings.min_r_multiple}" + widened_note()
             return d
 
         # If the market already trades above the planned entry, chase with a
@@ -891,17 +1041,22 @@ class PaperTradingService:
             logger.warning("Paper trading: quote lookup failed for %s: %s", symbol, exc)
         if price is not None and price > entry:
             chased = price * (1 + self.settings.chase_pct / 100.0)
+            # Chasing moves the entry away from the stop, so the floor applied
+            # at the planned entry still holds at the chased price.
             chase_r = (target - chased) / (chased - stop) if stop < chased < target else -1.0
             if chase_r < self.settings.chase_min_r_multiple:
                 d.r_multiple = round(chase_r, 2)
                 d.reason = (f"price ${price:.2f} ran past entry {entry}: "
-                            f"R:R {chase_r:.2f} below chase floor {self.settings.chase_min_r_multiple}")
+                            f"R:R {chase_r:.2f} below chase floor {self.settings.chase_min_r_multiple}" + widened_note())
                 return d
             d.extra["chased"] = {"planned_entry": entry, "latest_price": price}
             entry = chased
 
         risk_per_share = entry - stop
         d.r_multiple = round((target - entry) / risk_per_share, 2)
+        if stop != plan_stop:
+            d.extra["stop_widened"] = {"plan_stop": plan_stop, "stop": stop, "atr": round(atr, 4),
+                                       "min_atr_mult": self.settings.stop_min_atr_mult}
 
         qty_by_risk = int(math.floor(self.settings.risk_per_trade_usd / risk_per_share))
         max_notional = equity * self.settings.max_position_pct / 100.0
@@ -916,7 +1071,9 @@ class PaperTradingService:
         d.risk_usd = round(qty * risk_per_share, 2)
         d.status = "planned"
         d.reason = "bracket entry (chased to market)" if "chased" in d.extra else "bracket entry"
-        d.extra.update({"entry_low": entry_low, "entry_high": entry_high, "qty_by_risk": qty_by_risk, "qty_by_notional": qty_by_notional})
+        d.reason += widened_note()
+        d.extra.update({"entry_low": entry_low, "entry_high": entry_high, "atr": round(atr, 4) if atr else None,
+                        "qty_by_risk": qty_by_risk, "qty_by_notional": qty_by_notional})
         return d
 
     def _decide_short_entry(
@@ -966,10 +1123,20 @@ class PaperTradingService:
             d.reason = f"invalid short levels (target {target}, entry {entry}, stop {stop})"
             return d
 
+        # Mirror of the long stop distance floor: the buy-stop sits at least
+        # stop_min_atr_mult ATR above the entry.
+        atr = self._atr_for(symbol, signal)
+        plan_stop = stop
+        stop = self._floored_stop(entry, stop, atr, is_short=True)
+
+        def widened_note() -> str:
+            return (f" (stop widened {plan_stop} -> {stop}, {self.settings.stop_min_atr_mult:g}×ATR floor)"
+                    if stop != plan_stop else "")
+
         plan_r = (entry - target) / (stop - entry)
         if plan_r < self.settings.min_r_multiple:
             d.r_multiple = round(plan_r, 2)
-            d.reason = f"short R:R {plan_r:.2f} below {self.settings.min_r_multiple}"
+            d.reason = f"short R:R {plan_r:.2f} below {self.settings.min_r_multiple}" + widened_note()
             return d
 
         price = None
@@ -983,7 +1150,7 @@ class PaperTradingService:
             if chase_r < self.settings.chase_min_r_multiple:
                 d.r_multiple = round(chase_r, 2)
                 d.reason = (f"price ${price:.2f} ran below short entry {entry}: "
-                            f"R:R {chase_r:.2f} below chase floor {self.settings.chase_min_r_multiple}")
+                            f"R:R {chase_r:.2f} below chase floor {self.settings.chase_min_r_multiple}" + widened_note())
                 return d
             d.extra["chased"] = {"planned_entry": entry, "latest_price": price}
             entry = chased
@@ -1007,8 +1174,60 @@ class PaperTradingService:
         d.risk_usd = round(qty * risk_per_share, 2)
         d.status = "planned"
         d.reason = "short bracket entry (chased to market)" if "chased" in d.extra else "short bracket entry"
-        d.extra.update({"qty_by_risk": qty_by_risk, "qty_by_notional": qty_by_notional})
+        d.reason += widened_note()
+        if stop != plan_stop:
+            d.extra["stop_widened"] = {"plan_stop": plan_stop, "stop": stop, "atr": round(atr, 4),
+                                       "min_atr_mult": self.settings.stop_min_atr_mult}
+        d.extra.update({"atr": round(atr, 4) if atr else None, "qty_by_risk": qty_by_risk, "qty_by_notional": qty_by_notional})
         return d
+
+    # --- stop distance floor ---------------------------------------------
+    def _atr_for(self, symbol: str, signal: Dict[str, Any]) -> Optional[float]:
+        """ATR(14) behind the stop-distance floor.
+
+        The source report's system reference levels (``computed_trade_levels.atr``
+        in the stored context snapshot) come first, so the floor uses the same
+        volatility the analyst was shown; otherwise it is recomputed from the
+        broker's daily bars. None when neither is available.
+        """
+        report_id = signal.get("source_report_id")
+        if report_id:
+            try:
+                record = self.db.get_analysis_history_by_id(int(report_id))
+                raw = getattr(record, "context_snapshot", None)
+                snapshot = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                enhanced = snapshot.get("enhanced_context") if isinstance(snapshot, dict) else None
+                levels = enhanced.get("computed_trade_levels") if isinstance(enhanced, dict) else None
+                atr = _float_or_none(levels.get("atr")) if isinstance(levels, dict) else None
+                if atr:
+                    return atr
+            except Exception as exc:
+                logger.debug("Paper trading: report ATR lookup failed for %s: %s", symbol, exc)
+        try:
+            bars = self.broker.daily_bars(symbol, start=self.now() - timedelta(days=45), limit=40)
+            return _wilder_atr_from_bars(bars)
+        except Exception as exc:
+            logger.warning("Paper trading: ATR from daily bars unavailable for %s: %s", symbol, exc)
+            return None
+
+    def _floored_stop(self, entry: float, stop: float, atr: Optional[float], *, is_short: bool = False) -> float:
+        """``stop`` pushed out to at least ``stop_min_atr_mult`` ATR from ``entry``.
+
+        A plan stop inside one day's average range is not a thesis invalidation,
+        it is noise: seen live on BKR 2026-09-04 (stop 0.56 ATR below entry,
+        hit 90 minutes after the fill) and MSFT 2026-09-02 (0.7 ATR). The analyst
+        writes such stops as "a close below MA10", but the bracket leg fires on
+        a tick. Widening keeps the dollar risk (fewer shares) and lets the R:R
+        gates reject plans whose target cannot pay for a survivable stop.
+        Unchanged when ATR is unknown or the floor is disabled.
+        """
+        mult = self.settings.stop_min_atr_mult
+        if not atr or mult <= 0:
+            return stop
+        floor = entry + mult * atr if is_short else entry - mult * atr
+        if (stop >= floor) if is_short else (stop <= floor):
+            return stop
+        return _round_price(floor)
 
     def _entry_already_submitted_today(self, symbol: str) -> bool:
         """True when a real entry (long or short) for ``symbol`` was already submitted today (UTC).
@@ -1135,15 +1354,17 @@ def format_summary(summary: Dict[str, Any]) -> str:
     deferred = [d for d in summary.get("decisions", []) if d.get("status") == "deferred"]
     for d in acted:
         err = " ❌ " + d["reason"] if d["status"] == "error" else ""
+        widened = (d.get("extra") or {}).get("stop_widened")
+        widened_txt = f" · stop widened from {widened['plan_stop']} (ATR floor)" if widened else ""
         if d.get("side") == "buy" and not (d.get("extra") or {}).get("close"):
             lines.append(
                 f"🟢 BUY {d['symbol']} x{d['qty']} @≤{d['limit_price']} · stop {d['stop_price']} · "
-                f"target {d['target_price']} · risk ${d.get('risk_usd', 0):,.0f} · R {d.get('r_multiple')}" + err
+                f"target {d['target_price']} · risk ${d.get('risk_usd', 0):,.0f} · R {d.get('r_multiple')}" + widened_txt + err
             )
         elif d.get("side") == "sell_short":
             lines.append(
                 f"🔻 SHORT {d['symbol']} x{d['qty']} @≥{d['limit_price']} · stop {d['stop_price']} · "
-                f"target {d['target_price']} · risk ${d.get('risk_usd', 0):,.0f} · R {d.get('r_multiple')}" + err
+                f"target {d['target_price']} · risk ${d.get('risk_usd', 0):,.0f} · R {d.get('r_multiple')}" + widened_txt + err
             )
         elif d.get("side") == "buy":
             lines.append(f"🟦 COVER {d['symbol']} x{d['qty']} — {d['reason']}" + (" ❌" if d["status"] == "error" else ""))

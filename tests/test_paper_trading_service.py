@@ -13,6 +13,7 @@ from src.services.paper_trading_service import (
     PaperTradingService,
     PaperTradingSettings,
     Position,
+    _wilder_atr_from_bars,
     format_manage_summary,
     format_summary,
 )
@@ -24,13 +25,14 @@ class FakeBroker:
     label = "B"
     account_number = "PA_TEST"
 
-    def __init__(self, equity=30000.0, positions=None, open_orders=None, prices=None, stops=None, market_open=True):
+    def __init__(self, equity=30000.0, positions=None, open_orders=None, prices=None, stops=None, market_open=True, bars=None):
         self._equity = equity
         self._positions = positions or {}
         self._open_orders = open_orders or []
         self._prices = prices or {}
         self._stops = stops or {}
         self._market_open = market_open
+        self._bars = bars or {}
         self.submitted = []
         self.cancelled = []
         self.closed = []
@@ -83,6 +85,9 @@ class FakeBroker:
     def latest_price(self, symbol):
         return self._prices.get(symbol)
 
+    def daily_bars(self, symbol, *, start, limit=10):
+        return list(self._bars.get(symbol, []))
+
 
 class FakeSignals:
     def __init__(self, signals):
@@ -107,7 +112,7 @@ class FakeDB:
         self.rows.append(row)
 
     def get_analysis_history_by_id(self, record_id):
-        return None
+        return getattr(self, "reports", {}).get(record_id)
 
     def get_latest_paper_entry(self, account, symbol, side="buy"):
         return getattr(self, "entries", {}).get(symbol)
@@ -615,3 +620,113 @@ class ShortStopManagementTestCase(unittest.TestCase):
         summary = _service(settings=_short_settings(), broker=broker).manage_positions()
         self.assertEqual(broker.replaced, [])
         self.assertEqual(summary["adjustments"], [])
+
+
+def _bars(n=20, high=101.0, low=99.0, close=100.0):
+    """Flat daily bars with a constant true range of high - low."""
+    return [{"date": f"2026-08-{i + 1:02d}", "open": close, "high": high, "low": low, "close": close} for i in range(n)]
+
+
+class _Report:
+    def __init__(self, atr):
+        import json
+        self.context_snapshot = json.dumps({"enhanced_context": {"computed_trade_levels": {"atr": atr}}})
+
+
+class StopFloorTestCase(unittest.TestCase):
+    """New-entry stop distance floor (PAPER_TRADING_STOP_MIN_ATR_MULT, default 1 ATR)."""
+
+    def test_wilder_atr_from_bars(self):
+        self.assertAlmostEqual(_wilder_atr_from_bars(_bars(high=101.0, low=99.0)), 2.0, places=6)
+        self.assertIsNone(_wilder_atr_from_bars(_bars(n=10)))
+        self.assertIsNone(_wilder_atr_from_bars([]))
+
+    def test_bkr_like_plan_is_rejected_once_the_stop_is_survivable(self):
+        # BKR 2026-09-04: entry 63.7, stop 62.8 (0.56 ATR), target 65.44 — R:R 1.93 on paper,
+        # 1.09 once the stop sits a full ATR (1.60) away.
+        broker = FakeBroker(bars={"BKR": _bars(high=63.8, low=62.2, close=63.0)})
+        svc = _service(broker=broker, signals={"BKR": _signal("BKR", entry_low=63.0, entry_high=63.7, stop=62.8, target=65.44)})
+        d = svc.run(["BKR"])["decisions"][0]
+        self.assertEqual(d["status"], "skipped")
+        self.assertIn("R:R 1.09 below 1.5", d["reason"])
+        self.assertIn("stop widened 62.8 -> 62.1", d["reason"])
+        self.assertEqual(broker.submitted, [])
+
+    def test_tight_stop_is_widened_and_sizing_uses_the_wider_risk(self):
+        # Plan: entry 100, stop 99.5, target 104. ATR 2 -> stop 98, R:R 2.0 still clears the gate.
+        broker = FakeBroker(equity=1_000_000, bars={"XYZ": _bars()})
+        svc = _service(broker=broker, signals={"XYZ": _signal("XYZ", entry_low=100.0, entry_high=100.0, stop=99.5, target=104.0)})
+        d = svc.run(["XYZ"])["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertEqual(broker.submitted, [("buy", "XYZ", 250, 100.0, 98.0, 104.0)])  # $500 / $2 risk
+        self.assertEqual(d["extra"]["stop_widened"], {"plan_stop": 99.5, "stop": 98.0, "atr": 2.0, "min_atr_mult": 1.0})
+        self.assertEqual(d["r_multiple"], 2.0)
+        self.assertIn("stop widened from 99.5", format_summary({"decisions": [d], "account": "B", "equity": 1.0}))
+
+    def test_stop_already_beyond_the_floor_is_untouched(self):
+        broker = FakeBroker(equity=1_000_000, bars={"XYZ": _bars()})
+        svc = _service(broker=broker, signals={"XYZ": _signal("XYZ", entry_low=100.0, entry_high=100.0, stop=97.0, target=106.0)})
+        d = svc.run(["XYZ"])["decisions"][0]
+        self.assertEqual(broker.submitted, [("buy", "XYZ", 166, 100.0, 97.0, 106.0)])
+        self.assertNotIn("stop_widened", d["extra"])
+        self.assertEqual(d["extra"]["atr"], 2.0)
+
+    def test_chase_is_gated_on_the_widened_stop(self):
+        # Plan stop 99.5 -> 98.0 (1 ATR). Price ran to 101 -> chased 101.3: chase R:R is
+        # (106 - 101.3) / (101.3 - 98) = 1.42, above the 1.3 chase floor but below the plan floor.
+        broker = FakeBroker(equity=1_000_000, prices={"XYZ": 101.0}, bars={"XYZ": _bars()})
+        svc = _service(broker=broker, signals={"XYZ": _signal("XYZ", entry_low=100.0, entry_high=100.0, stop=99.5, target=106.0)})
+        d = svc.run(["XYZ"])["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertEqual(broker.submitted[0][3:], (101.3, 98.0, 106.0))
+        self.assertEqual(d["r_multiple"], 1.42)
+        self.assertEqual(d["extra"]["stop_widened"]["plan_stop"], 99.5)
+
+    def test_chase_rejected_when_widened_stop_breaks_the_chase_floor(self):
+        # Same plan, price ran to 102.5 -> chased 102.81: R:R (106 - 102.81) / (102.81 - 98) = 0.66.
+        broker = FakeBroker(equity=1_000_000, prices={"XYZ": 102.5}, bars={"XYZ": _bars()})
+        svc = _service(broker=broker, signals={"XYZ": _signal("XYZ", entry_low=100.0, entry_high=100.0, stop=99.5, target=106.0)})
+        d = svc.run(["XYZ"])["decisions"][0]
+        self.assertEqual(d["status"], "skipped")
+        self.assertIn("below chase floor", d["reason"])
+        self.assertIn("stop widened 99.5 -> 98.0", d["reason"])
+        self.assertEqual(broker.submitted, [])
+
+    def test_report_atr_is_preferred_over_broker_bars(self):
+        db = FakeDB()
+        db.reports = {7: _Report(atr=4.0)}
+        broker = FakeBroker(equity=1_000_000, bars={"XYZ": _bars()})  # bars say ATR 2, report says 4
+        svc = _service(broker=broker, db=db,
+                       signals={"XYZ": _signal("XYZ", entry_low=100.0, entry_high=100.0, stop=99.0, target=110.0, source_report_id=7)})
+        d = svc.run(["XYZ"])["decisions"][0]
+        self.assertEqual(broker.submitted[0][4], 96.0)
+        self.assertEqual(d["extra"]["atr"], 4.0)
+
+    def test_no_atr_available_leaves_the_plan_stop(self):
+        broker = FakeBroker(equity=1_000_000)
+        svc = _service(broker=broker, signals={"XYZ": _signal("XYZ", entry_low=100.0, entry_high=100.0, stop=99.5, target=104.0)})
+        d = svc.run(["XYZ"])["decisions"][0]
+        self.assertEqual(broker.submitted[0][4], 99.5)
+        self.assertIsNone(d["extra"]["atr"])
+        self.assertNotIn("stop_widened", d["extra"])
+
+    def test_zero_multiplier_disables_the_floor(self):
+        settings = PaperTradingSettings(enabled=True, account="B", risk_per_trade_usd=500, stop_min_atr_mult=0,
+                                        kill_switch_path=os.path.join(tempfile.gettempdir(), "no-such-kill-switch"))
+        broker = FakeBroker(equity=1_000_000, bars={"XYZ": _bars()})
+        svc = _service(settings=settings, broker=broker, signals={"XYZ": _signal("XYZ", entry_low=100.0, entry_high=100.0, stop=99.5, target=104.0)})
+        svc.run(["XYZ"])
+        self.assertEqual(broker.submitted[0][4], 99.5)
+
+    def test_short_stop_is_raised_to_the_floor(self):
+        # Short plan: entry 100, stop 100.5, target 88. ATR 2 -> buy-stop 102, R:R 6.0.
+        broker = FakeBroker(equity=1_000_000, bars={"XYZ": _bars()})
+        svc = _service(settings=_short_settings(), broker=broker, signals={"XYZ": _short_signal("XYZ", entry=100.0, stop=100.5, target=88.0)})
+        d = svc.run(["XYZ"])["decisions"][0]
+        self.assertEqual(d["status"], "submitted")
+        self.assertEqual(broker.submitted, [("sell_short", "XYZ", 250, 100.0, 102.0, 88.0)])
+        self.assertEqual(d["extra"]["stop_widened"]["stop"], 102.0)
+
+    def test_settings_from_env(self):
+        self.assertEqual(PaperTradingSettings.from_env({"PAPER_TRADING_STOP_MIN_ATR_MULT": "1.5"}).stop_min_atr_mult, 1.5)
+        self.assertEqual(PaperTradingSettings.from_env({}).stop_min_atr_mult, 1.0)

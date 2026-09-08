@@ -13,7 +13,7 @@ Results land in the `trade_postmortems` table and in the daily "🧠 Trade Revie
 
 ## Cadence and cost
 
-Runs at the end of the daily pre-market run, so a trade closed today is reviewed tomorrow morning and its lesson applies from the next analysis onward. One LLM call per newly closed trade (unfilled entries are recorded without a call); at a handful of trades a week this is cents.
+Runs in every intraday pass (`python main.py --manage-positions`, while the market is open) and at the end of the daily pre-market run. A stop-out is therefore reviewed within the next pass and its lesson applies from the next morning's analysis; before this, a Friday stop-out was not reviewed until the end of the *following* daily run, one analysis too late. One LLM call per newly closed trade (unfilled entries are recorded without a call); at a handful of trades a week this is cents.
 
 ## Honest limits
 

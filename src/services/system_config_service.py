@@ -481,7 +481,10 @@ class SystemConfigService:
             field_schema = schema_by_key[key]
             display_value = self._resolve_display_value(raw_value, field_schema, raw_value_exists)
             is_masked = False
-            if key in self._SERVER_MASKED_CONFIG_KEYS and display_value:
+            # Never hand secrets to the browser: every sensitive field is
+            # masked at read time. Writes stay unaffected because the update /
+            # validate / test paths already treat the mask token as "unchanged".
+            if display_value and (key in self._SERVER_MASKED_CONFIG_KEYS or bool(field_schema.get("is_sensitive", False))):
                 display_value = mask_token
                 is_masked = True
             item: Dict[str, Any] = {

@@ -20,6 +20,8 @@ from src.config import get_config, Config
 from src.services.system_config_service import SystemConfigService
 from src.services.runtime_scheduler import RuntimeSchedulerService
 from src.services.agent_chat_session_service import AgentChatSessionService
+from src.services.paper_dashboard_service import PaperDashboardService
+from src.services.paper_trading_service import PaperTradingSettings
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -84,4 +86,17 @@ def get_runtime_scheduler_service(request: Request) -> RuntimeSchedulerService:
     if service is None:
         service = RuntimeSchedulerService()
         request.app.state.runtime_scheduler_service = service
+    return service
+
+
+def get_paper_dashboard_service(request: Request) -> PaperDashboardService:
+    """App-lifecycle shared paper-trading dashboard service.
+
+    The broker connection is established lazily on first use and kept on
+    ``app.state`` so polling does not re-authenticate on every request.
+    """
+    service = getattr(request.app.state, "paper_dashboard_service", None)
+    if service is None:
+        service = PaperDashboardService(PaperTradingSettings.from_env())
+        request.app.state.paper_dashboard_service = service
     return service

@@ -2768,6 +2768,68 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             
             return list(results), total
     
+    def get_first_paper_entry_at(self, account: Optional[str]) -> Optional[datetime]:
+        """UTC-naive timestamp of the earliest real (non-dry-run) submitted entry, or None.
+
+        Anchors the dashboard's "P&L since the bot started trading" figure.
+        """
+        with self.get_session() as session:
+            stmt = select(func.min(PaperTradeRecord.created_at)).where(
+                PaperTradeRecord.side.in_(('buy', 'sell_short')),
+                PaperTradeRecord.status == 'submitted',
+                PaperTradeRecord.dry_run.is_(False),
+            )
+            if account:
+                stmt = stmt.where(PaperTradeRecord.account == account)
+            return session.execute(stmt).scalar()
+
+    def list_recent_paper_trades(
+        self, account: Optional[str] = None, *, limit: int = 20, include_skipped: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Most recent paper-trading records (newest first) as plain dicts for the dashboard."""
+        with self.get_session() as session:
+            stmt = select(PaperTradeRecord)
+            if account:
+                stmt = stmt.where(PaperTradeRecord.account == account)
+            if not include_skipped:
+                stmt = stmt.where(PaperTradeRecord.status != 'skipped')
+            rows = session.execute(stmt.order_by(PaperTradeRecord.id.desc()).limit(max(1, int(limit)))).scalars().all()
+            return [
+                {
+                    'id': r.id,
+                    'created_at': r.created_at.isoformat() if r.created_at else None,
+                    'symbol': r.symbol,
+                    'action': r.action,
+                    'side': r.side,
+                    'qty': r.qty,
+                    'limit_price': r.limit_price,
+                    'stop_price': r.stop_price,
+                    'target_price': r.target_price,
+                    'status': r.status,
+                    'reason': r.reason,
+                    'order_id': r.order_id,
+                    'dry_run': bool(r.dry_run),
+                }
+                for r in rows
+            ]
+
+    def get_realized_paper_pnl(self) -> Dict[str, Any]:
+        """Realized P&L of closed paper trades as reconstructed by the post-mortem loop."""
+        with self.get_session() as session:
+            rows = session.execute(
+                select(TradePostmortemRecord.pnl_usd, TradePostmortemRecord.outcome).where(
+                    TradePostmortemRecord.exit_kind.is_not(None),
+                    TradePostmortemRecord.exit_kind != 'no_entry',
+                )
+            ).all()
+        total = sum(float(pnl or 0) for pnl, _ in rows)
+        return {
+            'realized_pnl': round(total, 2),
+            'closed_trades': len(rows),
+            'wins': sum(1 for _, o in rows if o == 'win'),
+            'losses': sum(1 for _, o in rows if o == 'loss'),
+        }
+
     def get_latest_paper_entry(
         self, account: Optional[str], symbol: str, side: str = 'buy'
     ) -> Optional[PaperTradeRecord]:
